@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Register New Person</title>
+    <style>
+        body { font-family: Arial; background: #1e1e1e; color: white; text-align: center; padding: 30px; }
+        video, canvas { border-radius: 10px; margin-top: 15px; }
+        input { padding: 10px; border-radius: 5px; border: none; margin-top: 10px; width: 250px; }
+        button { padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+        .message { margin-top: 15px; font-size: 18px; }
+        a { color: #4CAF50; }
+    </style>
+</head>
+<body>
+    <h1>➕ Register New Person</h1>
+    <p><a href="/admin">← Back to Dashboard</a></p>
+
+    {% if message %}<p class="message">{{ message }}</p>{% endif %}
+
+    <video id="video" width="400" height="300" autoplay playsinline></video>
+    <canvas id="canvas" width="400" height="300" style="display:none;"></canvas>
+    <br>
+    <input type="text" id="nameInput" placeholder="Enter person's name" required>
+    <br>
+    <button onclick="capture()">📸 Capture & Register</button>
+
+    <form id="hiddenForm" method="POST" style="display:none;">
+        <input type="hidden" name="name" id="hiddenName">
+        <input type="hidden" name="image" id="hiddenImage">
+    </form>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => { video.srcObject = stream; })
+            .catch(err => { alert("Camera access denied."); });
+
+        function capture() {
+            const name = document.getElementById('nameInput').value.trim();
+            if (!name) {
+                alert("Please enter a name first.");
+                return;
+            }
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = canvas.toDataURL('image/jpeg', 0.9);
+
+            document.getElementById('hiddenName').value = name;
+            document.getElementById('hiddenImage').value = imageData;
+            document.getElementById('hiddenForm').submit();
+        }
+    </script>
+</body>
+</html>
