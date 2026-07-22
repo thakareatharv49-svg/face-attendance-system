@@ -176,7 +176,27 @@ def register():
                 message = f"✅ {name} registered successfully!"
 
     return render_template("register.html", message=message)
+@app.route("/admin/people")
+@login_required
+def people_list():
+    people = []
+    for filename in os.listdir(KNOWN_FACES_DIR):
+        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
+            people.append(os.path.splitext(filename)[0])
+    return render_template("people.html", people=people)
 
+
+@app.route("/admin/people/delete/<name>", methods=["POST"])
+@login_required
+def delete_person(name):
+    for filename in os.listdir(KNOWN_FACES_DIR):
+        if os.path.splitext(filename)[0] == name:
+            os.remove(os.path.join(KNOWN_FACES_DIR, filename))
+
+    global known_encodings, known_names
+    known_encodings, known_names = load_known_faces()
+
+    return redirect(url_for("people_list"))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Registered People</title>
+    <style>
+        body { font-family: Arial; background: #1e1e1e; color: white; padding: 30px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 10px; border-bottom: 1px solid #444; text-align: left; }
+        a { color: #4CAF50; }
+        button { padding: 6px 14px; background: #F44336; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #d32f2f; }
+    </style>
+</head>
+<body>
+    <h1>👥 Registered People</h1>
+    <p><a href="/admin">← Back to Dashboard</a></p>
+
+    <table>
+        <tr><th>Name</th><th>Action</th></tr>
+        {% for person in people %}
+        <tr>
+            <td>{{ person }}</td>
+            <td>
+                <form method="POST" action="/admin/people/delete/{{ person }}" onsubmit="return confirm('Remove {{ person }}?');">
+                    <button type="submit">Remove</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
