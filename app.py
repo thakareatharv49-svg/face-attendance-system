@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for
+from werkzeug.security import check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import face_recognition
 import numpy as np
@@ -17,7 +18,7 @@ login_manager.login_view = "login"
 
 # --- Simple hardcoded admin account ---
 ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "admin123"
+ADMIN_PASSWORD_HASH = "scrypt:32768:8:1$vh77OL314GVlUTsE$17c8f4d6d45b96d6342f9e421e92deb2a3e13872f0e3d4794a3b9cff6bb421c8dd4fc96403305cbc705ae43a644dd873a22240ca12f9407b43fe74038a1cd4bd"
 
 class AdminUser(UserMixin):
     id = "admin"
@@ -123,7 +124,7 @@ def login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
             login_user(AdminUser())
             return redirect(url_for("admin_dashboard"))
         else:
