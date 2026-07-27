@@ -2,20 +2,17 @@
 <html>
 <head>
     <title>AI Attendance System</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: #1e1e1e; color: white; }
-        video, canvas { border-radius: 10px; margin-top: 20px; }
-        #status { font-size: 20px; margin-top: 15px; }
-        .live { color: #4CAF50; }
-        .waiting { color: #FFC107; }
-        .unknown { color: #F44336; }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>🎯 AI Attendance System</h1>
-    <video id="video" width="480" height="360" autoplay playsinline></video>
-    <canvas id="canvas" width="480" height="360" style="display:none;"></canvas>
-    <div id="status">Initializing camera...</div>
+    <div class="container" style="text-align:center;">
+        <h1>🎯 AI Attendance System</h1>
+        <p class="subtitle">Look at the camera to mark your attendance</p>
+
+        <video id="video" width="480" height="360" autoplay playsinline></video>
+        <canvas id="canvas" width="480" height="360" style="display:none;"></canvas>
+        <div id="status" class="status-box">Initializing camera...</div>
+    </div>
 
     <script>
         const video = document.getElementById('video');
@@ -43,27 +40,27 @@
             })
             .then(res => res.json())
             .then(data => {
+                status.className = "status-box";
                 if (data.names.length === 0) {
                     status.textContent = "No face detected";
-                    status.className = "";
                 } else {
                     const name = data.names[0];
                     if (name === "Unknown") {
                         status.textContent = "Unknown person";
-                        status.className = "unknown";
+                        status.classList.add("status-unknown");
                     } else if (data.marked.includes(name)) {
-                        status.textContent = `✅ ${name} - Attendance marked (live)`;
-                        status.className = "live";
+                        status.textContent = `✅ ${name} — Attendance marked (live)`;
+                        status.classList.add("status-live");
                     } else {
-                        status.textContent = `${name} recognized - please blink to confirm`;
-                        status.className = "waiting";
+                        status.textContent = `${name} recognized — please blink to confirm`;
+                        status.classList.add("status-waiting");
                     }
                 }
             })
             .catch(err => console.error(err));
         }
 
-        setInterval(captureAndSend, 1000);  // send a frame every 1 second
+        setInterval(captureAndSend, 1000);
     </script>
 </body>
 </html>

@@ -2,31 +2,30 @@
 <html>
 <head>
     <title>Registered People</title>
-    <style>
-        body { font-family: Arial; background: #1e1e1e; color: white; padding: 30px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 10px; border-bottom: 1px solid #444; text-align: left; }
-        a { color: #4CAF50; }
-        button { padding: 6px 14px; background: #F44336; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        button:hover { background: #d32f2f; }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>👥 Registered People</h1>
-    <p><a href="/admin">← Back to Dashboard</a></p>
+    <div class="container">
+        <h1>👥 Registered People</h1>
+        <div class="nav-links">
+            <a href="/admin">← Back to Dashboard</a>
+        </div>
 
-    <table>
-        <tr><th>Name</th><th>Action</th></tr>
-        {% for person in people %}
-        <tr>
-            <td>{{ person }}</td>
-            <td>
-                <form method="POST" action="/admin/people/delete/{{ person }}" onsubmit="return confirm('Remove {{ person }}?');">
-                    <button type="submit">Remove</button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
+        <div class="card">
+            <table>
+                <tr><th>Name</th><th>Action</th></tr>
+                {% for person in people %}
+                <tr>
+                    <td>{{ person }}</td>
+                    <td>
+                        <form method="POST" action="/admin/people/delete/{{ person }}" onsubmit="return confirm('Remove {{ person }}?');" style="margin:0;">
+                            <button type="submit" class="btn btn-danger">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
 </body>
 </html>

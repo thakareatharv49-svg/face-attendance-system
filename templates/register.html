@@ -2,32 +2,29 @@
 <html>
 <head>
     <title>Register New Person</title>
-    <style>
-        body { font-family: Arial; background: #1e1e1e; color: white; text-align: center; padding: 30px; }
-        video, canvas { border-radius: 10px; margin-top: 15px; }
-        input { padding: 10px; border-radius: 5px; border: none; margin-top: 10px; width: 250px; }
-        button { padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px; }
-        .message { margin-top: 15px; font-size: 18px; }
-        a { color: #4CAF50; }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>➕ Register New Person</h1>
-    <p><a href="/admin">← Back to Dashboard</a></p>
+    <div class="container" style="text-align:center;">
+        <h1>➕ Register New Person</h1>
+        <div class="nav-links" style="justify-content:center;">
+            <a href="/admin">← Back to Dashboard</a>
+        </div>
 
-    {% if message %}<p class="message">{{ message }}</p>{% endif %}
+        {% if message %}<div class="status-box" style="max-width:400px; margin:0 auto 20px;">{{ message }}</div>{% endif %}
 
-    <video id="video" width="400" height="300" autoplay playsinline></video>
-    <canvas id="canvas" width="400" height="300" style="display:none;"></canvas>
-    <br>
-    <input type="text" id="nameInput" placeholder="Enter person's name" required>
-    <br>
-    <button onclick="capture()">📸 Capture & Register</button>
+        <video id="video" width="400" height="300" autoplay playsinline></video>
+        <canvas id="canvas" width="400" height="300" style="display:none;"></canvas>
+        <br>
+        <input type="text" id="nameInput" placeholder="Enter person's name" style="max-width:300px;" required>
+        <br>
+        <button onclick="capture()" class="btn btn-primary">📸 Capture & Register</button>
 
-    <form id="hiddenForm" method="POST" style="display:none;">
-        <input type="hidden" name="name" id="hiddenName">
-        <input type="hidden" name="image" id="hiddenImage">
-    </form>
+        <form id="hiddenForm" method="POST" style="display:none;">
+            <input type="hidden" name="name" id="hiddenName">
+            <input type="hidden" name="image" id="hiddenImage">
+        </form>
+    </div>
 
     <script>
         const video = document.getElementById('video');

@@ -2,25 +2,28 @@
 <html>
 <head>
     <title>Admin Dashboard</title>
-    <style>
-        body { font-family: Arial; background: #1e1e1e; color: white; padding: 30px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 10px; border-bottom: 1px solid #444; text-align: left; }
-        a { color: #4CAF50; }
-    </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>📋 Admin Dashboard</h1>
-    <p><a href="/logout">Logout</a></p>
-    <p><a href="/admin/register">➕ Register New Person</a></p>
-    <p><a href="/admin/people">👥 Manage Registered People</a></p>
-     
-    <h2>Attendance Records</h2>
-    <table>
-        <tr><th>Name</th><th>Timestamp</th></tr>
-        {% for record in records %}
-        <tr><td>{{ record[1] }}</td><td>{{ record[2] }}</td></tr>
-        {% endfor %}
-    </table>
+    <div class="container">
+        <h1>📋 Admin Dashboard</h1>
+        <p class="subtitle">Manage attendance and registered people</p>
+
+        <div class="nav-links">
+            <a href="/admin/register">➕ Register New Person</a>
+            <a href="/admin/people">👥 Manage People</a>
+            <a href="/logout">🚪 Logout</a>
+        </div>
+
+        <div class="card">
+            <h2 style="margin-top:0;">Attendance Records</h2>
+            <table>
+                <tr><th>Name</th><th>Timestamp</th></tr>
+                {% for record in records %}
+                <tr><td>{{ record[1] }}</td><td>{{ record[2] }}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
 </body>
 </html>
