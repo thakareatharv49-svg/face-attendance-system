@@ -10,8 +10,12 @@ import base64
 import re
 import secrets
 import time
+import csv
+import io
+import calendar as calendar_module
+from datetime import date, datetime
 from functools import wraps
-from database import (init_db, mark_attendance, get_all_attendance, ensure_user_table, create_user, get_user_by_username, get_user_by_id, get_all_users, delete_user, get_attendance_for_name, get_today_attendance_count)
+from database import (init_db, mark_attendance, get_all_attendance, ensure_user_table, create_user, get_user_by_username, get_user_by_id, get_all_users, delete_user, get_attendance_for_name, get_today_attendance_count, update_user_password, get_attendance_between)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
@@ -369,6 +373,110 @@ def user_dashboard():
 def user_attendance():
     records = get_attendance_for_name(current_user.name)
     return render_template("user_attendance.html", records=records, person_name=current_user.name)
+
+
+@app.route("/admin/reports")
+@admin_required
+def admin_reports():
+    today = date.today()
+    default_start = today.replace(day=1).isoformat()
+    start_date = request.args.get("start", default_start)
+    end_date = request.args.get("end", today.isoformat())
+    try:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+        if start > end:
+            raise ValueError("Start date must not be after end date.")
+    except ValueError:
+        start_date, end_date = default_start, today.isoformat()
+    records = get_attendance_between(start_date, end_date)
+    present_people = len({row[1] for row in records})
+    present_days = len({row[2][:10] for row in records})
+    return render_template("admin_reports.html", records=records,
+                           start_date=start_date, end_date=end_date,
+                           present_people=present_people, present_days=present_days)
+
+
+@app.route("/admin/reports/export")
+@admin_required
+def export_attendance_report():
+    today = date.today()
+    start_date = request.args.get("start", today.replace(day=1).isoformat())
+    end_date = request.args.get("end", today.isoformat())
+    try:
+        if date.fromisoformat(start_date) > date.fromisoformat(end_date):
+            abort(400)
+    except ValueError:
+        abort(400)
+    records = get_attendance_between(start_date, end_date)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Attendance ID", "Name", "Timestamp", "Status"])
+    for row in records:
+        writer.writerow([row[0], row[1], row[2], "Present"])
+    filename = f"attendance-{start_date}-to-{end_date}.csv"
+    return Response(output.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@app.route("/admin/settings")
+@admin_required
+def admin_settings():
+    return render_template("admin_settings.html",
+                           face_count=len(known_names),
+                           account_count=len(get_all_users()),
+                           closed_threshold=BLINK_CLOSED_THRESHOLD,
+                           open_threshold=BLINK_OPEN_THRESHOLD,
+                           secure_cookie=app.config["SESSION_COOKIE_SECURE"],
+                           max_upload_mb=app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024))
+
+
+@app.route("/admin/profile")
+@admin_required
+def admin_profile():
+    return render_template("admin_profile.html", admin_username=ADMIN_USERNAME)
+
+
+@app.route("/user/calendar")
+@user_required
+def user_calendar():
+    today = date.today()
+    month_value = request.args.get("month", today.strftime("%Y-%m"))
+    try:
+        month_date = datetime.strptime(month_value, "%Y-%m").date()
+    except ValueError:
+        month_date = today.replace(day=1)
+        month_value = month_date.strftime("%Y-%m")
+    records = get_attendance_for_name(current_user.name)
+    present_dates = {row[2][:10] for row in records if row[2].startswith(month_value)}
+    weeks = calendar_module.monthcalendar(month_date.year, month_date.month)
+    return render_template("user_calendar.html", weeks=weeks,
+                           month_label=month_date.strftime("%B %Y"),
+                           month_value=month_value, present_dates=present_dates,
+                           person_name=current_user.name)
+
+
+@app.route("/user/profile", methods=["GET", "POST"])
+@user_required
+def user_profile():
+    message = None
+    error = None
+    if request.method == "POST":
+        account = get_user_by_id(current_user.get_id().split(":", 1)[1])
+        current_password = request.form.get("current_password", "")
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        if not account or not check_password_hash(account["password_hash"], current_password):
+            error = "Current password is incorrect."
+        elif len(new_password) < 8:
+            error = "New password must contain at least 8 characters."
+        elif new_password != confirm_password:
+            error = "New passwords do not match."
+        else:
+            update_user_password(account["id"], generate_password_hash(new_password))
+            message = "Password updated successfully."
+    return render_template("user_profile.html", person_name=current_user.name,
+                           username=current_user.username, message=message, error=error)
 
 
 @app.errorhandler(403)
