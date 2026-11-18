@@ -1,66 +1,14 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>AI Attendance System</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-    <div class="container" style="text-align:center;">
-        <h1>🎯 AI Attendance System</h1>
-        <p class="subtitle">Look at the camera to mark your attendance</p>
-
-        <video id="video" width="480" height="360" autoplay playsinline></video>
-        <canvas id="canvas" width="480" height="360" style="display:none;"></canvas>
-        <div id="status" class="status-box">Initializing camera...</div>
-    </div>
-
-    <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const status = document.getElementById('status');
-        const ctx = canvas.getContext('2d');
-
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                video.srcObject = stream;
-                status.textContent = "Camera ready. Looking for face...";
-            })
-            .catch(err => {
-                status.textContent = "Camera access denied or unavailable.";
-            });
-
-        function captureAndSend() {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageData = canvas.toDataURL('image/jpeg', 0.7);
-
-            fetch('/process_frame', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: imageData })
-            })
-            .then(res => res.json())
-            .then(data => {
-                status.className = "status-box";
-                if (data.names.length === 0) {
-                    status.textContent = "No face detected";
-                } else {
-                    const name = data.names[0];
-                    if (name === "Unknown") {
-                        status.textContent = "Unknown person";
-                        status.classList.add("status-unknown");
-                    } else if (data.marked.includes(name)) {
-                        status.textContent = `✅ ${name} — Attendance marked (live)`;
-                        status.classList.add("status-live");
-                    } else {
-                        status.textContent = `${name} recognized — please blink to confirm`;
-                        status.classList.add("status-waiting");
-                    }
-                }
-            })
-            .catch(err => console.error(err));
-        }
-
-        setInterval(captureAndSend, 1000);
-    </script>
-</body>
-</html>
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="csrf-token" content="{{ csrf_token() }}"><title>AI Attendance · Face Verification</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
+<body class="kiosk-body"><main class="kiosk-shell"><header class="brand-row"><div class="brand-mark">A</div><div><strong>AttendAI</strong><span>SMART FACE ATTENDANCE</span></div><a class="text-link" href="{{ url_for('login') }}">Admin ↗</a></header>
+<section class="kiosk-card"><div class="eyebrow"><span class="pulse-dot"></span> LIVE KIOSK</div><h1>Check in with your face.</h1><p class="muted">Stand in front of the camera. We'll recognize you and ask for a quick blink to confirm you're present.</p>
+<div class="camera-frame"><video id="video" autoplay playsinline muted></video><div class="camera-overlay"><span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span><span class="scan-line"></span></div><div id="camera-placeholder" class="camera-placeholder"><div class="camera-icon">◎</div><strong>Starting camera…</strong><span>Allow camera access when prompted</span></div></div>
+<div id="status" class="status-panel neutral" role="status" aria-live="polite"><span class="status-indicator"></span><span>Initializing secure camera session…</span></div><p class="privacy-note">🔒 Camera frames are processed for attendance and are not stored as attendance photos.</p></section>
+<footer>ATTENDANCE MADE SIMPLE <span>•</span> CONTACT YOUR ADMIN FOR HELP</footer></main>
+<script>
+(()=>{const video=document.getElementById('video'),status=document.getElementById('status'),placeholder=document.getElementById('camera-placeholder'),canvas=document.createElement('canvas'),ctx=canvas.getContext('2d'),csrf=document.querySelector('meta[name="csrf-token"]').content,clientId=crypto.randomUUID();let stream=null,timer=null,busy=false,stopped=false;
+function show(message,type='neutral'){status.className='status-panel '+type;status.innerHTML='<span class="status-indicator"></span><span></span>';status.querySelector('span:last-child').textContent=message;}
+async function start(){if(!navigator.mediaDevices?.getUserMedia){show('Camera access requires HTTPS or localhost.','error');return;}try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});video.srcObject=stream;await video.play();placeholder.hidden=true;show('Camera ready. Looking for one registered face…');timer=setInterval(capture,250);}catch(e){show('Camera unavailable. Allow camera permission and reload this page.','error');}}
+async function capture(){if(busy||stopped||video.readyState<2||!video.videoWidth)return;busy=true;try{canvas.width=Math.min(video.videoWidth,640);canvas.height=Math.round(video.videoHeight*canvas.width/video.videoWidth);ctx.drawImage(video,0,0,canvas.width,canvas.height);const image=canvas.toDataURL('image/jpeg',0.72),response=await fetch('/process_frame',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrf},body:JSON.stringify({image,client_id:clientId})}),data=await response.json();if(!response.ok)throw new Error(data.error||'Could not process camera frame.');const types={marked:'success',already_marked:'success',blink:'warning',recognized:'warning',unknown:'error',multiple_faces:'error',no_face:'neutral'};show(data.message||'Ready.',types[data.status]||'neutral');if(data.status==='marked'||data.status==='already_marked'){clearInterval(timer);setTimeout(()=>{show('Ready for the next person. You can remain in front of the camera.');timer=setInterval(capture,250);},5000);}}catch(e){show(e.message||'Connection problem. Retrying…','error');}finally{busy=false;}}
+window.addEventListener('pagehide',()=>{stopped=true;clearInterval(timer);if(stream)stream.getTracks().forEach(t=>t.stop());});start();})();
+</script></body></html>

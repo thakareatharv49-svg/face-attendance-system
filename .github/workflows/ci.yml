@@ -1,0 +1,35 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+concurrency:
+  group: face-attendance-ci-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libopenblas-dev liblapack-dev
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements.txt
+      - name: Run automated application tests
+        env:
+          SECRET_KEY: test-secret-key-that-is-long-enough
+          ADMIN_PASSWORD_HASH: ""
+          DATABASE_PATH: /tmp/attendai-ci.db
+          KNOWN_FACES_DIR: /tmp/attendai-ci-known-faces
+        run: pytest -q tests/
