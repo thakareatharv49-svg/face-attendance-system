@@ -34,8 +34,19 @@ A face recognition-based attendance system with liveness detection (anti-spoofin
 6. Open in your browser.
    - User/kiosk page: `http://localhost:5000/`
    - Sign-in: `http://localhost:5000/login` (admin and user accounts)
-   - Admin dashboard: `http://localhost:5000/admin` (admin credentials are configured in `app.py`)
+   - Admin dashboard: `http://localhost:5000/admin` (configure credentials using the instructions below)
    - User dashboard: `http://localhost:5000/user` (accounts are created by the admin)
+
+### Administrator credentials
+
+You can set a known admin password without changing source code. In PowerShell, replace the example password with a strong private password, then start the app in the same terminal:
+
+```powershell
+$env:ADMIN_USERNAME = "admin"
+$env:ADMIN_PASSWORD_HASH = & .\venv\Scripts\python.exe -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('Replace-With-A-Strong-Password'))"
+```
+
+Keep the generated hash in your environment configuration; never commit a plaintext password or hash to the repository.
 
 ### Account setup
 
