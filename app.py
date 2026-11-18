@@ -9,6 +9,7 @@ import math
 import base64
 import re
 import secrets
+import time
 from functools import wraps
 from database import (init_db, mark_attendance, get_all_attendance, ensure_user_table, create_user, get_user_by_username, get_user_by_id, get_all_users, delete_user, get_attendance_for_name, get_today_attendance_count)
 
@@ -83,7 +84,9 @@ def user_required(view):
 
 # --- Face recognition setup (same as before) ---
 KNOWN_FACES_DIR = "known_faces"
-EAR_THRESHOLD = 0.21
+BLINK_CLOSED_THRESHOLD = 0.17
+BLINK_OPEN_THRESHOLD = 0.22
+BLINK_MAX_DURATION_SECONDS = 2.0
 
 def load_known_faces():
     known_encodings = []
@@ -124,50 +127,93 @@ def index():
 
 @app.route("/process_frame", methods=["POST"])
 def process_frame():
-    data = request.json
-    image_data = data["image"].split(",")[1]
-    img_bytes = base64.b64decode(image_data)
+    data = request.get_json(silent=True) or {}
+    image = data.get("image", "")
+    if not isinstance(image, str) or "," not in image:
+        return jsonify({"error": "Invalid image payload", "names": [], "marked": [], "already_marked": []}), 400
+
+    try:
+        img_bytes = base64.b64decode(image.split(",", 1)[1], validate=True)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid image encoding", "names": [], "marked": [], "already_marked": []}), 400
+
     np_arr = np.frombuffer(img_bytes, np.uint8)
     frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    if frame is None:
+        return jsonify({"error": "Invalid image frame", "names": [], "marked": [], "already_marked": []}), 400
 
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
     face_locations = face_recognition.face_locations(rgb)
+    if not face_locations:
+        return jsonify({"names": [], "is_blinking": False, "blink_confirmed": False,
+                        "ear": None, "marked": [], "already_marked": []})
+    if len(face_locations) != 1:
+        return jsonify({"names": ["Multiple faces"], "is_blinking": False,
+                        "blink_confirmed": False, "ear": None, "marked": [],
+                        "already_marked": []})
+
     face_encodings = face_recognition.face_encodings(rgb, face_locations)
+    if not face_encodings:
+        return jsonify({"names": ["Unknown"], "is_blinking": False,
+                        "blink_confirmed": False, "ear": None, "marked": [],
+                        "already_marked": []})
 
-    results = []
-    for encoding in face_encodings:
-        distances = face_recognition.face_distance(known_encodings, encoding)
-        name = "Unknown"
-        if len(distances) > 0:
-            best_index = distances.argmin()
-            if distances[best_index] < 0.6:
-                name = known_names[best_index]
-        results.append(name)
+    distances = face_recognition.face_distance(known_encodings, face_encodings[0])
+    name = "Unknown"
+    if len(distances):
+        best_index = int(distances.argmin())
+        if distances[best_index] < 0.6:
+            name = known_names[best_index]
+    if name == "Unknown":
+        return jsonify({"names": ["Unknown"], "is_blinking": False,
+                        "blink_confirmed": False, "ear": None, "marked": [],
+                        "already_marked": []})
 
-    is_blinking = False
-    landmarks_list = face_recognition.face_landmarks(rgb)
-    if landmarks_list:
-        landmarks = landmarks_list[0]
-        left_ear = eye_aspect_ratio(landmarks['left_eye'])
-        right_ear = eye_aspect_ratio(landmarks['right_eye'])
-        avg_ear = (left_ear + right_ear) / 2.0
-        if avg_ear < EAR_THRESHOLD:
-            is_blinking = True
+    landmarks_list = face_recognition.face_landmarks(rgb, face_locations)
+    if not landmarks_list:
+        return jsonify({"names": [name], "is_blinking": False,
+                        "blink_confirmed": False, "ear": None, "marked": [],
+                        "already_marked": []})
+
+    landmarks = landmarks_list[0]
+    left_ear = eye_aspect_ratio(landmarks["left_eye"])
+    right_ear = eye_aspect_ratio(landmarks["right_eye"])
+    avg_ear = (left_ear + right_ear) / 2.0
+    now = time.monotonic()
+
+    state = session_state.setdefault(name, {
+        "eyes_closed": False, "closed_frames": 0, "closed_at": None
+    })
+    if state["eyes_closed"] and state["closed_at"] and now - state["closed_at"] > BLINK_MAX_DURATION_SECONDS:
+        state.update({"eyes_closed": False, "closed_frames": 0, "closed_at": None})
+
+    blink_confirmed = False
+    if avg_ear < BLINK_CLOSED_THRESHOLD:
+        if not state["eyes_closed"]:
+            state["closed_at"] = now
+        state["eyes_closed"] = True
+        state["closed_frames"] += 1
+    elif avg_ear > BLINK_OPEN_THRESHOLD:
+        if state["eyes_closed"] and state["closed_frames"] >= 1:
+            blink_confirmed = True
+        state.update({"eyes_closed": False, "closed_frames": 0, "closed_at": None})
 
     marked = []
-    for name in results:
-        if name != "Unknown":
-            key = name
-            if key not in session_state:
-                session_state[key] = {"blinked": False}
-            if is_blinking:
-                session_state[key]["blinked"] = True
-            if session_state[key]["blinked"]:
-                if mark_attendance(name):
-                    marked.append(name)
+    already_marked = []
+    if blink_confirmed:
+        if mark_attendance(name):
+            marked.append(name)
+        else:
+            already_marked.append(name)
 
-    return jsonify({"names": results, "is_blinking": is_blinking, "marked": marked})
+    return jsonify({
+        "names": [name],
+        "is_blinking": avg_ear < BLINK_CLOSED_THRESHOLD,
+        "blink_confirmed": blink_confirmed,
+        "ear": round(float(avg_ear), 3),
+        "marked": marked,
+        "already_marked": already_marked,
+    })
 
 
 # --- LOGIN ---
