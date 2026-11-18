@@ -228,10 +228,12 @@ def login():
         username = request.form.get("username")
         password = request.form.get("password")
         if username == ADMIN_USERNAME and password and check_password_hash(ADMIN_PASSWORD_HASH, password):
+            session.clear()
             login_user(AdminUser())
             return redirect(url_for("admin_dashboard"))
         account = get_user_by_username(username or "")
         if account and check_password_hash(account["password_hash"], password or ""):
+            session.clear()
             login_user(PortalUser(account))
             return redirect(url_for("user_dashboard"))
         error = "Invalid username or password"
@@ -242,6 +244,7 @@ def login():
 @login_required
 def logout():
     logout_user()
+    session.clear()
     return redirect(url_for("login"))
 
 
