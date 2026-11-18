@@ -391,10 +391,20 @@ def admin_reports():
         start_date, end_date = default_start, today.isoformat()
     records = get_attendance_between(start_date, end_date)
     present_people = len({row[1] for row in records})
-    present_days = len({row[2][:10] for row in records})
+    daily_totals = {}
+    for row in records:
+        day = row[2][:10]
+        daily_totals[day] = daily_totals.get(day, 0) + 1
+    max_daily_total = max(daily_totals.values(), default=1)
+    daily_trend = [
+        {"date": day, "count": count, "width": round(count / max_daily_total * 100)}
+        for day, count in sorted(daily_totals.items())
+    ]
+    present_days = len(daily_totals)
     return render_template("admin_reports.html", records=records,
                            start_date=start_date, end_date=end_date,
-                           present_people=present_people, present_days=present_days)
+                           present_people=present_people, present_days=present_days,
+                           daily_trend=daily_trend)
 
 
 @app.route("/admin/reports/export")
