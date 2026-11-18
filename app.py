@@ -123,9 +123,14 @@ print(f"Loaded {len(known_names)} known face(s): {known_names}")
 
 
 
-# --- PUBLIC KIOSK PAGE (no login needed) ---
+# --- PUBLIC WELCOME PAGE AND ATTENDANCE KIOSK ---
 @app.route("/")
 def index():
+    return render_template("home.html")
+
+
+@app.route("/attendance")
+def attendance_kiosk():
     return render_template("index.html")
 
 
@@ -228,21 +233,27 @@ def process_frame():
 # --- LOGIN ---
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    role = request.args.get("role") if request.method == "GET" else request.form.get("role")
+    if role not in {"admin", "user"}:
+        return redirect(url_for("index"))
+
     error = None
     if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
-        if username == ADMIN_USERNAME and password and check_password_hash(ADMIN_PASSWORD_HASH, password):
-            session.clear()
-            login_user(AdminUser())
-            return redirect(url_for("admin_dashboard"))
-        account = get_user_by_username(username or "")
-        if account and check_password_hash(account["password_hash"], password or ""):
-            session.clear()
-            login_user(PortalUser(account))
-            return redirect(url_for("user_dashboard"))
-        error = "Invalid username or password"
-    return render_template("login.html", error=error)
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        if role == "admin":
+            if username == ADMIN_USERNAME and password and check_password_hash(ADMIN_PASSWORD_HASH, password):
+                session.clear()
+                login_user(AdminUser())
+                return redirect(url_for("admin_dashboard"))
+        else:
+            account = get_user_by_username(username)
+            if account and check_password_hash(account["password_hash"], password):
+                session.clear()
+                login_user(PortalUser(account))
+                return redirect(url_for("user_dashboard"))
+        error = "Invalid " + role + " username or password"
+    return render_template("login.html", error=error, role=role)
 
 
 @app.route("/logout")
@@ -250,7 +261,7 @@ def login():
 def logout():
     logout_user()
     session.clear()
-    return redirect(url_for("login"))
+    return redirect(url_for("index"))
 
 
 # --- ADMIN DASHBOARD (login required) ---
