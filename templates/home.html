@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>Welcome · AI Face Attendance</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    body{min-height:100vh;background:radial-gradient(ellipse at top,#243b5a 0,#101827 52%,#0b1220 100%);display:grid;place-items:center;padding:24px}
+    .welcome{width:min(920px,100%);margin:auto;text-align:center}
+    .welcome-mark{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;margin:0 auto 22px;background:linear-gradient(135deg,#60a5fa,#6366f1);color:#fff;font-size:30px;box-shadow:0 14px 36px #3b82f655}
+    .welcome h1{font-size:clamp(2rem,5vw,3.2rem);margin:8px 0 12px;color:#fff}
+    .welcome .intro{color:#aebbd0;font-size:1.05rem;margin:0 auto 38px;max-width:560px}
+    .role-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;text-align:left}
+    .role-card{display:flex;flex-direction:column;gap:14px;padding:28px;border:1px solid #ffffff20;border-radius:22px;background:#ffffff0d;color:#fff;text-decoration:none;transition:transform .2s,border-color .2s,background .2s;min-height:220px}
+    .role-card:hover{transform:translateY(-4px);border-color:#7aaeff;background:#ffffff15}
+    .role-icon{width:52px;height:52px;border-radius:15px;display:grid;place-items:center;background:#3b82f633;color:#93c5fd;font-size:25px}
+    .role-card h2{font-size:1.35rem;margin:2px 0 0;color:#fff}
+    .role-card p{margin:0;color:#b7c4d8;line-height:1.55}
+    .role-action{margin-top:auto;color:#93c5fd;font-weight:700}
+    .welcome-footer{margin-top:30px;color:#8493aa;font-size:.9rem}
+    .welcome-footer a{color:#a9c9ff;text-decoration:none}
+    @media(max-width:620px){.role-grid{grid-template-columns:1fr}.role-card{min-height:190px;padding:23px}}
+  </style>
+</head>
+<body>
+  <main class="welcome">
+    <div class="welcome-mark" aria-hidden="true">✦</div>
+    <p class="eyebrow">AI FACE ATTENDANCE SYSTEM</p>
+    <h1>Welcome</h1>
+    <p class="intro">A smarter way to manage attendance. Choose your portal to continue.</p>
+    <section class="role-grid" aria-label="Choose your login type">
+      <a class="role-card" href="{{ url_for('login', role='admin') }}">
+        <span class="role-icon" aria-hidden="true">⌘</span>
+        <h2>Admin Login</h2>
+        <p>Manage registered people, user accounts, attendance records and reports.</p>
+        <span class="role-action">Continue as Admin →</span>
+      </a>
+      <a class="role-card" href="{{ url_for('login', role='user') }}">
+        <span class="role-icon" aria-hidden="true">♙</span>
+        <h2>User Login</h2>
+        <p>View your personal attendance history, calendar and account profile.</p>
+        <span class="role-action">Continue as User →</span>
+      </a>
+    </section>
+    <p class="welcome-footer">Need to mark attendance? <a href="{{ url_for('attendance_kiosk') }}">Open the attendance kiosk</a></p>
+  </main>
+</body>
+</html>
