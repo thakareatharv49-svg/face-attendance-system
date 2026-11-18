@@ -19,6 +19,8 @@ from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from database import get_all_attendance, get_attendance, get_dashboard_stats, init_db, mark_attendance
 
 BASE_DIR = Path(__file__).resolve().parent
