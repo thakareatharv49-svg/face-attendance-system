@@ -243,3 +243,20 @@ tr:hover td {
 .trend-row > span { color:var(--text-secondary); }
 .trend-track { height:10px; border-radius:20px; background:#0d1117; overflow:hidden; }
 .trend-bar { height:100%; min-width:3px; border-radius:20px; background:linear-gradient(90deg,#388bfd,#8957e5); }
+
+
+/* Persistent, high-visibility attendance success feedback */
+.status-confirmed {
+    color: #3fb950;
+    background: rgba(63, 185, 80, 0.14);
+    border: 2px solid #3fb950;
+    box-shadow: 0 0 0 4px rgba(63, 185, 80, 0.08), 0 8px 28px rgba(63, 185, 80, 0.16);
+    font-size: clamp(18px, 3vw, 24px);
+    font-weight: 750;
+    padding: 22px 18px;
+    animation: attendance-confirmed-in 260ms ease-out;
+}
+@keyframes attendance-confirmed-in {
+    from { opacity: .55; transform: scale(.98); }
+    to { opacity: 1; transform: scale(1); }
+}
