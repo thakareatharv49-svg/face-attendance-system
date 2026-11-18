@@ -5,3 +5,13 @@ attendance.db
 *.jpg
 *.jpeg
 *.png
+
+# Local configuration and generated data
+.env
+.env.*
+!.env.example
+.venv/
+.pytest_cache/
+*.py[cod]
+attendance.db-shm
+attendance.db-wal
