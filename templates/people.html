@@ -18,7 +18,7 @@
                 <tr>
                     <td>{{ person }}</td>
                     <td>
-                        <form method="POST" action="/admin/people/delete/{{ person }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}" onsubmit="return confirm('Remove {{ person }}?');" style="margin:0;">
+                        <form method="POST" action="/admin/people/delete/{{ person }}" onsubmit="return confirm('Remove {{ person }}?');" style="margin:0;"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                             <button type="submit" class="btn btn-danger">Remove</button>
                         </form>
                     </td>
