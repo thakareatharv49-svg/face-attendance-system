@@ -27,3 +27,5 @@ services:
         value: /var/data/known_faces
       - key: LOG_LEVEL
         value: INFO
+      - key: APP_TIMEZONE
+        value: Asia/Kolkata
