@@ -42,8 +42,8 @@ def protect_form_posts():
             abort(400)
 
 # --- Simple hardcoded admin account ---
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD_HASH = "scrypt:32768:8:1$vh77OL314GVlUTsE$17c8f4d6d45b96d6342f9e421e92deb2a3e13872f0e3d4794a3b9cff6bb421c8dd4fc96403305cbc705ae43a644dd873a22240ca12f9407b43fe74038a1cd4bd"
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "scrypt:32768:8:1$vh77OL314GVlUTsE$17c8f4d6d45b96d6342f9e421e92deb2a3e13872f0e3d4794a3b9cff6bb421c8dd4fc96403305cbc705ae43a644dd873a22240ca12f9407b43fe74038a1cd4bd")
 
 class AdminUser(UserMixin):
     id = "admin"
@@ -84,6 +84,7 @@ def user_required(view):
 
 # --- Face recognition setup (same as before) ---
 KNOWN_FACES_DIR = "known_faces"
+os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
 BLINK_CLOSED_THRESHOLD = 0.17
 BLINK_OPEN_THRESHOLD = 0.22
 BLINK_MAX_DURATION_SECONDS = 2.0
