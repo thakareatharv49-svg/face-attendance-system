@@ -50,8 +50,9 @@
         }
 
         async function captureAndSend() {
-            // Once the server confirms attendance, keep the success screen visible.
-            if (completedName || isProcessing || video.readyState < 2 || !video.videoWidth) return;
+            // Keep checking frames so a second blink can receive the server's
+            // explicit "already marked" response for today's attendance.
+            if (isProcessing || video.readyState < 2 || !video.videoWidth) return;
             isProcessing = true;
             try {
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -82,10 +83,12 @@
                 } else {
                     const name = data.names[0];
                     if (completedName && completedName !== name) completedName = null;
-                    if (completedName === name) {
+                    // A second confirmed blink is answered by the backend as already_marked.
+                    // Until then, preserve the original success message while scanning continues.
+                    if (completedName === name && !(data.already_marked || []).includes(name)) {
                         statusBox.className = "status-box status-confirmed";
-                        statusBox.textContent = "✓  Attendance confirmed for " + name + " — you are done for today!";
-                        diagnostic.textContent = "Your attendance confirmation is complete.";
+                        statusBox.textContent = "✓ Attendance marked successfully for " + name + ".";
+                        diagnostic.textContent = "Your attendance is recorded. A further blink will be checked for duplicate attendance.";
                         return;
                     }
                     diagnostic.textContent = data.ear === null ? "Face recognized; locating eye landmarks…" : "Eye aspect ratio: " + data.ear;
@@ -101,8 +104,8 @@
                         statusBox.className = "status-box status-confirmed";
                         statusBox.setAttribute("role", "status");
                         statusBox.setAttribute("aria-live", "assertive");
-                        statusBox.textContent = "✓ " + name + " — attendance was already marked today.";
-                        diagnostic.textContent = "Your attendance was already recorded today.";
+                        statusBox.textContent = "Already marked — " + name + ", your attendance is already recorded for today.";
+                        diagnostic.textContent = "Duplicate attendance prevented. You can return tomorrow.";
                     } else if (data.is_blinking) {
                         statusBox.textContent = name + " — blink detected. Open your eyes to confirm.";
                         statusBox.classList.add("status-waiting");
