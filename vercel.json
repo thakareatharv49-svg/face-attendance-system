@@ -1,9 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
-    {
-      "source": "/:path*",
-      "destination": "https://REPLACE-WITH-CLOUDFLARE-TUNNEL.trycloudflare.com/:path*"
-    }
-  ]
+  "buildCommand": "echo Static AttendAI launch portal",
+  "outputDirectory": "public"
 }
