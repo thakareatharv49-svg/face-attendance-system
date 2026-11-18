@@ -17,10 +17,12 @@ from flask_login import LoginManager, UserMixin, current_user, login_required, l
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
 
 from database import get_all_attendance, get_attendance, get_dashboard_stats, init_db, mark_attendance
 
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 KNOWN_FACES_DIR = Path(os.environ.get("KNOWN_FACES_DIR", BASE_DIR / "known_faces"))
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
 FACE_MATCH_TOLERANCE = float(os.environ.get("FACE_MATCH_TOLERANCE", "0.48"))
