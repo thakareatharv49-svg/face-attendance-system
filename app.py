@@ -1,5 +1,5 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for
-from werkzeug.security import check_password_hash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, abort
+from werkzeug.security import check_password_hash, generate_password_hash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import face_recognition
 import numpy as np
@@ -7,10 +7,12 @@ import cv2
 import os
 import math
 import base64
-from database import init_db, mark_attendance, get_all_attendance
+import re
+from functools import wraps
+from database import (init_db, mark_attendance, get_all_attendance, ensure_user_table, create_user, get_user_by_username, get_user_by_id, get_all_users, delete_user, get_attendance_for_name, get_today_attendance_count)
 
 app = Flask(__name__)
-app.secret_key = "change-this-secret-key-later"  # needed for login sessions
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "local-demo-change-this-key-before-deployment")
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -23,11 +25,39 @@ ADMIN_PASSWORD_HASH = "scrypt:32768:8:1$vh77OL314GVlUTsE$17c8f4d6d45b96d6342f9e4
 class AdminUser(UserMixin):
     id = "admin"
 
+class PortalUser(UserMixin):
+    def __init__(self, row):
+        self.id = "user:" + str(row["id"])
+        self.name = row["name"]
+        self.username = row["username"]
+        self.role = "user"
+
 @login_manager.user_loader
 def load_user(user_id):
     if user_id == "admin":
         return AdminUser()
+    if user_id and user_id.startswith("user:"):
+        row = get_user_by_id(user_id.split(":", 1)[1])
+        return PortalUser(row) if row else None
     return None
+
+def admin_required(view):
+    @wraps(view)
+    @login_required
+    def wrapped(*args, **kwargs):
+        if current_user.get_id() != "admin":
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
+
+def user_required(view):
+    @wraps(view)
+    @login_required
+    def wrapped(*args, **kwargs):
+        if not current_user.get_id().startswith("user:"):
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
 
 # --- Face recognition setup (same as before) ---
 KNOWN_FACES_DIR = "known_faces"
@@ -57,6 +87,7 @@ def eye_aspect_ratio(eye_points):
     return (vertical1 + vertical2) / (2.0 * horizontal)
 
 init_db()
+ensure_user_table()
 known_encodings, known_names = load_known_faces()
 print(f"Loaded {len(known_names)} known face(s): {known_names}")
 
@@ -127,8 +158,11 @@ def login():
         if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
             login_user(AdminUser())
             return redirect(url_for("admin_dashboard"))
-        else:
-            error = "Invalid username or password"
+        account = get_user_by_username(username or "")
+        if account and check_password_hash(account["password_hash"], password or ""):
+            login_user(PortalUser(account))
+            return redirect(url_for("user_dashboard"))
+        error = "Invalid username or password"
     return render_template("login.html", error=error)
 
 
@@ -142,14 +176,14 @@ def logout():
 # --- ADMIN DASHBOARD (login required) ---
 # --- ADMIN DASHBOARD (login required) ---
 @app.route("/admin")
-@login_required
+@admin_required
 def admin_dashboard():
     records = get_all_attendance()
-    return render_template("admin.html", records=records)
+    return render_template("admin.html", records=records, users=get_all_users(), today_count=get_today_attendance_count())
 
 
 @app.route("/admin/register", methods=["GET", "POST"])
-@login_required
+@admin_required
 def register():
     message = None
     if request.method == "POST":
@@ -178,7 +212,7 @@ def register():
 
     return render_template("register.html", message=message)
 @app.route("/admin/people")
-@login_required
+@admin_required
 def people_list():
     people = []
     for filename in os.listdir(KNOWN_FACES_DIR):
@@ -188,7 +222,7 @@ def people_list():
 
 
 @app.route("/admin/people/delete/<name>", methods=["POST"])
-@login_required
+@admin_required
 def delete_person(name):
     for filename in os.listdir(KNOWN_FACES_DIR):
         if os.path.splitext(filename)[0] == name:
@@ -199,5 +233,62 @@ def delete_person(name):
 
     return redirect(url_for("people_list"))
 
+@app.route("/admin/users", methods=["GET", "POST"])
+@admin_required
+def admin_users():
+    message = None
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip().lower()
+        name = request.form.get("name", "").strip()
+        password = request.form.get("password", "")
+        if not re.fullmatch(r"[a-z0-9._-]{3,32}", username):
+            error = "Username must be 3–32 characters (letters, numbers, dot, underscore or hyphen)."
+        elif not name or len(name) > 80:
+            error = "Enter a valid registered person's name."
+        elif len(password) < 8:
+            error = "Password must contain at least 8 characters."
+        elif name not in known_names:
+            error = "Register this person's face first, using the exact same name."
+        else:
+            try:
+                create_user(username, name, generate_password_hash(password))
+                message = "Account created for " + name + "."
+            except Exception:
+                error = "That username or person already has an account."
+    return render_template("admin_users.html", users=get_all_users(), message=message, error=error, people=known_names)
+
+
+@app.route("/admin/users/delete/<int:user_id>", methods=["POST"])
+@admin_required
+def admin_delete_user(user_id):
+    delete_user(user_id)
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/user")
+@user_required
+def user_dashboard():
+    records = get_attendance_for_name(current_user.name)
+    today = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+    present_days = len({row[2][:10] for row in records})
+    today_present = any(row[2].startswith(today) for row in records)
+    return render_template("user_dashboard.html", records=records[:10],
+                           total_days=present_days, today_present=today_present,
+                           person_name=current_user.name)
+
+
+@app.route("/user/attendance")
+@user_required
+def user_attendance():
+    records = get_attendance_for_name(current_user.name)
+    return render_template("user_attendance.html", records=records, person_name=current_user.name)
+
+
+@app.errorhandler(403)
+def forbidden(_error):
+    return render_template("forbidden.html"), 403
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=False)
