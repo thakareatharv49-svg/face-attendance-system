@@ -1,10 +1,12 @@
 """SQLite persistence for the AI attendance system."""
 import os
 import sqlite3
-from datetime import datetime, date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from contextlib import contextmanager
 
 DB_NAME = os.environ.get("DATABASE_PATH", os.path.join(os.path.dirname(__file__), "attendance.db"))
+APP_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "Asia/Kolkata"))
 
 
 @contextmanager
@@ -60,7 +62,7 @@ def init_db():
 
 def mark_attendance(name):
     """Atomically mark a person once per local calendar day."""
-    now = datetime.now()
+    now = datetime.now(APP_TIMEZONE)
     name = name.strip()
     day = now.date().isoformat()
     with connection() as conn:
@@ -108,7 +110,7 @@ def get_attendance(date_from=None, date_to=None, name=None, limit=1000):
 
 
 def get_dashboard_stats():
-    today = date.today().isoformat()
+    today = datetime.now(APP_TIMEZONE).date().isoformat()
     with connection() as conn:
         total_people = conn.execute("SELECT COUNT(DISTINCT name) FROM attendance").fetchone()[0]
         today_count = conn.execute("SELECT COUNT(*) FROM attendance WHERE attendance_date = ?", (today,)).fetchone()[0]
