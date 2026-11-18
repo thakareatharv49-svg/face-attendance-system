@@ -1,69 +1,211 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for
-from werkzeug.security import check_password_hash
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+"""Flask web application for face-recognition attendance."""
+import base64
+import binascii
+import logging
+import os
+import re
+import secrets
+import threading
+import time
+from pathlib import Path
+
+import cv2
 import face_recognition
 import numpy as np
-import cv2
-import os
-import math
-import base64
-from database import init_db, mark_attendance, get_all_attendance
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, url_for
+from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
+from flask_wtf.csrf import CSRFProtect
+from werkzeug.security import check_password_hash
+from werkzeug.utils import secure_filename
+
+from database import get_all_attendance, get_attendance, get_dashboard_stats, init_db, mark_attendance
+
+BASE_DIR = Path(__file__).resolve().parent
+KNOWN_FACES_DIR = Path(os.environ.get("KNOWN_FACES_DIR", BASE_DIR / "known_faces"))
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
+FACE_MATCH_TOLERANCE = float(os.environ.get("FACE_MATCH_TOLERANCE", "0.48"))
+EAR_THRESHOLD = float(os.environ.get("EAR_THRESHOLD", "0.21"))
+BLINK_CLOSED_FRAMES = 2
+LIVENESS_TTL_SECONDS = 20
+NAME_PATTERN = re.compile(r"^[\w .'-]{1,60}$", re.UNICODE)
 
 app = Flask(__name__)
-app.secret_key = "change-this-secret-key-later"  # needed for login sessions
-
-login_manager = LoginManager()
-login_manager.init_app(app)
+app.config.update(
+    SECRET_KEY=os.environ.get("SECRET_KEY") or secrets.token_hex(32),
+    MAX_CONTENT_LENGTH=3 * 1024 * 1024,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "false").lower() == "true",
+    REMEMBER_COOKIE_HTTPONLY=True,
+    REMEMBER_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "false").lower() == "true",
+)
+csrf = CSRFProtect(app)
+login_manager = LoginManager(app)
 login_manager.login_view = "login"
+login_manager.login_message = "Please sign in to access the admin area."
+login_manager.session_protection = "strong"
 
-# --- Simple hardcoded admin account ---
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD_HASH = "scrypt:32768:8:1$vh77OL314GVlUTsE$17c8f4d6d45b96d6342f9e421e92deb2a3e13872f0e3d4794a3b9cff6bb421c8dd4fc96403305cbc705ae43a644dd873a22240ca12f9407b43fe74038a1cd4bd"
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+logger = logging.getLogger(__name__)
+KNOWN_FACES_DIR.mkdir(parents=True, exist_ok=True)
+init_db()
+
+# The app deliberately fails closed when admin credentials are not configured.
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "")
+if not ADMIN_PASSWORD_HASH and os.environ.get("ADMIN_PASSWORD"):
+    logger.warning("ADMIN_PASSWORD is configured in plaintext; use ADMIN_PASSWORD_HASH instead.")
+
 
 class AdminUser(UserMixin):
     id = "admin"
 
+
 @login_manager.user_loader
 def load_user(user_id):
-    if user_id == "admin":
-        return AdminUser()
-    return None
+    return AdminUser() if user_id == "admin" else None
 
-# --- Face recognition setup (same as before) ---
-KNOWN_FACES_DIR = "known_faces"
-EAR_THRESHOLD = 0.21
+
+known_encodings = []
+known_names = []
+face_lock = threading.RLock()
+liveness_lock = threading.Lock()
+liveness_sessions = {}
+login_attempts = {}
+
 
 def load_known_faces():
-    known_encodings = []
-    known_names = []
-    for filename in os.listdir(KNOWN_FACES_DIR):
-        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
-            path = os.path.join(KNOWN_FACES_DIR, filename)
-            image = face_recognition.load_image_file(path)
-            encodings = face_recognition.face_encodings(image)
-            if len(encodings) == 0:
+    encodings, names = [], []
+    for path in sorted(KNOWN_FACES_DIR.iterdir()):
+        if path.suffix.lower() not in {".jpg", ".jpeg", ".png"} or not path.is_file():
+            continue
+        try:
+            image = face_recognition.load_image_file(str(path))
+            found = face_recognition.face_encodings(image)
+            if len(found) != 1:
+                logger.warning("Skipping %s: expected exactly one face, found %s", path.name, len(found))
                 continue
-            known_encodings.append(encodings[0])
-            known_names.append(os.path.splitext(filename)[0])
-    return known_encodings, known_names
+            encodings.append(found[0])
+            names.append(path.stem.replace("_", " "))
+        except Exception:
+            logger.exception("Could not load registered face: %s", path.name)
+    return encodings, names
+
+
+def refresh_known_faces():
+    global known_encodings, known_names
+    encodings, names = load_known_faces()
+    with face_lock:
+        known_encodings, known_names = encodings, names
+    logger.info("Loaded %d registered face(s)", len(names))
+
 
 def euclidean(p1, p2):
-    return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
-
-def eye_aspect_ratio(eye_points):
-    vertical1 = euclidean(eye_points[1], eye_points[5])
-    vertical2 = euclidean(eye_points[2], eye_points[4])
-    horizontal = euclidean(eye_points[0], eye_points[3])
-    return (vertical1 + vertical2) / (2.0 * horizontal)
-
-init_db()
-known_encodings, known_names = load_known_faces()
-print(f"Loaded {len(known_names)} known face(s): {known_names}")
-
-session_state = {}
+    return float(np.linalg.norm(np.asarray(p1, dtype=float) - np.asarray(p2, dtype=float)))
 
 
-# --- PUBLIC KIOSK PAGE (no login needed) ---
+def eye_aspect_ratio(points):
+    horizontal = euclidean(points[0], points[3])
+    if horizontal <= 0:
+        return 1.0
+    return (euclidean(points[1], points[5]) + euclidean(points[2], points[4])) / (2.0 * horizontal)
+
+
+def decode_image(data_uri):
+    if not isinstance(data_uri, str) or "," not in data_uri:
+        raise ValueError("A valid camera image is required.")
+    header, encoded = data_uri.split(",", 1)
+    if header not in ("data:image/jpeg;base64", "data:image/png;base64"):
+        raise ValueError("Only JPEG and PNG camera frames are accepted.")
+    if len(encoded) > MAX_IMAGE_BYTES * 2:
+        raise ValueError("Image is too large. Please use a smaller camera frame.")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("The camera image could not be decoded.") from exc
+    if not raw or len(raw) > MAX_IMAGE_BYTES:
+        raise ValueError("Image must be smaller than 2 MB.")
+    image = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("The uploaded image is not a valid image.")
+    height, width = image.shape[:2]
+    if width < 160 or height < 120:
+        raise ValueError("Camera frame resolution is too small.")
+    if width > 1280:
+        scale = 1280 / width
+        image = cv2.resize(image, (1280, int(height * scale)))
+    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
+def recognize_one(rgb):
+    locations = face_recognition.face_locations(rgb, model="hog")
+    if len(locations) != 1:
+        return None, None, len(locations)
+    encodings = face_recognition.face_encodings(rgb, locations)
+    if not encodings:
+        return None, None, 1
+    with face_lock:
+        encs, names = list(known_encodings), list(known_names)
+    if not encs:
+        return None, encodings[0], 1
+    distances = face_recognition.face_distance(encs, encodings[0])
+    best = int(np.argmin(distances))
+    if float(distances[best]) <= FACE_MATCH_TOLERANCE:
+        return names[best], encodings[0], 1
+    return None, encodings[0], 1
+
+
+def process_liveness(client_id, name, rgb):
+    """Require a fresh close-then-open blink for this single recognized face."""
+    now = time.monotonic()
+    landmarks = face_recognition.face_landmarks(rgb)
+    if not landmarks:
+        return False, False
+    left = eye_aspect_ratio(landmarks[0].get("left_eye", []))
+    right = eye_aspect_ratio(landmarks[0].get("right_eye", []))
+    closed = (left + right) / 2.0 < EAR_THRESHOLD
+    with liveness_lock:
+        state = liveness_sessions.get(client_id)
+        if not state or state["expires"] < now or state["name"] != name:
+            state = {"name": name, "closed_frames": 0, "expires": now + LIVENESS_TTL_SECONDS}
+            liveness_sessions[client_id] = state
+        state["expires"] = now + LIVENESS_TTL_SECONDS
+        if closed:
+            state["closed_frames"] = min(state["closed_frames"] + 1, 10)
+            return True, False
+        verified = state["closed_frames"] >= BLINK_CLOSED_FRAMES
+        state["closed_frames"] = 0
+        if verified:
+            liveness_sessions.pop(client_id, None)
+        # Periodically discard expired sessions.
+        if len(liveness_sessions) > 500:
+            for key in [k for k, value in liveness_sessions.items() if value["expires"] < now]:
+                liveness_sessions.pop(key, None)
+        return False, verified
+
+
+@app.after_request
+def security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+    response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+@app.errorhandler(413)
+def too_large(_error):
+    if request.path == "/process_frame":
+        return jsonify({"error": "Request is too large."}), 413
+    return "Upload too large.", 413
+
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "service": "face-attendance"})
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -71,81 +213,94 @@ def index():
 
 @app.route("/process_frame", methods=["POST"])
 def process_frame():
-    data = request.json
-    image_data = data["image"].split(",")[1]
-    img_bytes = base64.b64decode(image_data)
-    np_arr = np.frombuffer(img_bytes, np.uint8)
-    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-    face_locations = face_recognition.face_locations(rgb)
-    face_encodings = face_recognition.face_encodings(rgb, face_locations)
-
-    results = []
-    for encoding in face_encodings:
-        distances = face_recognition.face_distance(known_encodings, encoding)
-        name = "Unknown"
-        if len(distances) > 0:
-            best_index = distances.argmin()
-            if distances[best_index] < 0.6:
-                name = known_names[best_index]
-        results.append(name)
-
-    is_blinking = False
-    landmarks_list = face_recognition.face_landmarks(rgb)
-    if landmarks_list:
-        landmarks = landmarks_list[0]
-        left_ear = eye_aspect_ratio(landmarks['left_eye'])
-        right_ear = eye_aspect_ratio(landmarks['right_eye'])
-        avg_ear = (left_ear + right_ear) / 2.0
-        if avg_ear < EAR_THRESHOLD:
-            is_blinking = True
-
-    marked = []
-    for name in results:
-        if name != "Unknown":
-            key = name
-            if key not in session_state:
-                session_state[key] = {"blinked": False}
-            if is_blinking:
-                session_state[key]["blinked"] = True
-            if session_state[key]["blinked"]:
-                if mark_attendance(name):
-                    marked.append(name)
-
-    return jsonify({"names": results, "is_blinking": is_blinking, "marked": marked})
+    payload = request.get_json(silent=True) or {}
+    client_id = payload.get("client_id", "")
+    if not isinstance(client_id, str) or not re.fullmatch(r"[a-f0-9-]{20,64}", client_id):
+        return jsonify({"error": "Invalid kiosk session. Refresh this page."}), 400
+    try:
+        rgb = decode_image(payload.get("image"))
+        name, _encoding, face_count = recognize_one(rgb)
+        if face_count == 0:
+            liveness_sessions.pop(client_id, None)
+            return jsonify({"status": "no_face", "message": "Position your face inside the camera."})
+        if face_count > 1:
+            liveness_sessions.pop(client_id, None)
+            return jsonify({"status": "multiple_faces", "message": "Only one person should stand in front of the camera."})
+        if not name:
+            liveness_sessions.pop(client_id, None)
+            return jsonify({"status": "unknown", "message": "Face not registered. Please contact the administrator."})
+        closed, verified = process_liveness(client_id, name, rgb)
+        if verified:
+            marked = mark_attendance(name)
+            return jsonify({
+                "status": "marked" if marked else "already_marked",
+                "name": name,
+                "marked": marked,
+                "message": f"Attendance marked for {name}." if marked else f"{name} is already marked today.",
+            })
+        return jsonify({
+            "status": "blink" if closed else "recognized",
+            "name": name,
+            "message": "Blink and reopen your eyes to confirm attendance." if not closed else "Blink detected. Open your eyes to confirm.",
+        })
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        logger.exception("Frame processing failed")
+        return jsonify({"error": "Could not process this frame. Please try again."}), 500
 
 
-# --- LOGIN ---
+def login_is_throttled(ip):
+    now = time.monotonic()
+    attempts = [stamp for stamp in login_attempts.get(ip, []) if now - stamp < 300]
+    login_attempts[ip] = attempts
+    return len(attempts) >= 8
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("admin_dashboard"))
     error = None
     if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
-        if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
-            login_user(AdminUser())
-            return redirect(url_for("admin_dashboard"))
+        ip = request.remote_addr or "unknown"
+        if login_is_throttled(ip):
+            error = "Too many attempts. Wait five minutes and try again."
         else:
-            error = "Invalid username or password"
+            username = request.form.get("username", "")
+            password = request.form.get("password", "")
+            configured_password = bool(ADMIN_PASSWORD_HASH or os.environ.get("ADMIN_PASSWORD"))
+            valid_password = (
+                check_password_hash(ADMIN_PASSWORD_HASH, password)
+                if ADMIN_PASSWORD_HASH else
+                secrets.compare_digest(password, os.environ.get("ADMIN_PASSWORD", ""))
+            )
+            if configured_password and secrets.compare_digest(username, ADMIN_USERNAME) and valid_password:
+                login_attempts.pop(ip, None)
+                login_user(AdminUser(), remember=False, fresh=True)
+                return redirect(url_for("admin_dashboard"))
+            login_attempts.setdefault(ip, []).append(time.monotonic())
+            error = "Invalid username or password."
     return render_template("login.html", error=error)
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     logout_user()
+    flash("You have been signed out.", "success")
     return redirect(url_for("login"))
 
 
-# --- ADMIN DASHBOARD (login required) ---
-# --- ADMIN DASHBOARD (login required) ---
 @app.route("/admin")
 @login_required
 def admin_dashboard():
-    records = get_all_attendance()
-    return render_template("admin.html", records=records)
+    date_from = request.args.get("from", "").strip() or None
+    date_to = request.args.get("to", "").strip() or None
+    name = request.args.get("name", "").strip() or None
+    records = get_attendance(date_from, date_to, name)
+    return render_template("admin.html", records=records, stats=get_dashboard_stats(),
+                           date_from=date_from or "", date_to=date_to or "", search_name=name or "")
 
 
 @app.route("/admin/register", methods=["GET", "POST"])
@@ -154,50 +309,99 @@ def register():
     message = None
     if request.method == "POST":
         name = request.form.get("name", "").strip()
-        image_data = request.form.get("image")
-
-        if not name or not image_data:
-            message = "Name and photo are both required."
+        data_uri = request.form.get("image", "")
+        if not NAME_PATTERN.fullmatch(name):
+            message = "Use 1–60 letters, numbers, spaces, apostrophes, dots, or hyphens."
         else:
-            img_bytes = base64.b64decode(image_data.split(",")[1])
-            np_arr = np.frombuffer(img_bytes, np.uint8)
-            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            encodings = face_recognition.face_encodings(rgb)
-            if len(encodings) == 0:
-                message = "No face detected in the photo. Try again with a clearer shot."
+            safe_name = secure_filename(name)
+            if not safe_name:
+                message = "Please enter a valid name."
             else:
-                save_path = os.path.join(KNOWN_FACES_DIR, f"{name}.jpg")
-                cv2.imwrite(save_path, frame)
-
-                global known_encodings, known_names
-                known_encodings, known_names = load_known_faces()
-
-                message = f"✅ {name} registered successfully!"
-
+                path = KNOWN_FACES_DIR / f"{safe_name}.jpg"
+                if path.exists():
+                    message = "A person with this name is already registered."
+                else:
+                    try:
+                        rgb = decode_image(data_uri)
+                        encodings = face_recognition.face_encodings(rgb)
+                        if len(encodings) != 1:
+                            message = "Exactly one clear face must be visible. Please try again."
+                        else:
+                            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                            if not cv2.imwrite(str(path), bgr):
+                                raise OSError("Could not save the registration photo.")
+                            refresh_known_faces()
+                            flash(f"{name} was registered successfully.", "success")
+                            return redirect(url_for("people_list"))
+                    except ValueError as exc:
+                        message = str(exc)
+                    except Exception:
+                        logger.exception("Registration failed")
+                        message = "Registration failed. Please try again."
     return render_template("register.html", message=message)
+
+
 @app.route("/admin/people")
 @login_required
 def people_list():
     people = []
-    for filename in os.listdir(KNOWN_FACES_DIR):
-        if filename.lower().endswith((".jpg", ".jpeg", ".png")):
-            people.append(os.path.splitext(filename)[0])
+    for path in sorted(KNOWN_FACES_DIR.iterdir()):
+        if path.suffix.lower() in {".jpg", ".jpeg", ".png"} and path.is_file():
+            people.append(path.stem.replace("_", " "))
     return render_template("people.html", people=people)
 
 
 @app.route("/admin/people/delete/<name>", methods=["POST"])
 @login_required
 def delete_person(name):
-    for filename in os.listdir(KNOWN_FACES_DIR):
-        if os.path.splitext(filename)[0] == name:
-            os.remove(os.path.join(KNOWN_FACES_DIR, filename))
-
-    global known_encodings, known_names
-    known_encodings, known_names = load_known_faces()
-
+    safe_name = secure_filename(name)
+    if not safe_name or safe_name != name:
+        abort(400)
+    deleted = False
+    for suffix in (".jpg", ".jpeg", ".png"):
+        path = KNOWN_FACES_DIR / f"{safe_name}{suffix}"
+        if path.exists() and path.is_file():
+            path.unlink()
+            deleted = True
+    if deleted:
+        refresh_known_faces()
+        flash(f"{name.replace('_', ' ')} was removed.", "success")
+    else:
+        flash("Person not found.", "warning")
     return redirect(url_for("people_list"))
 
+
+@app.route("/admin/export.csv")
+@login_required
+def export_csv():
+    import csv
+    import io
+    from flask import Response
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Name", "Timestamp"])
+    for row in get_attendance(
+        request.args.get("from") or None,
+        request.args.get("to") or None,
+        request.args.get("name") or None,
+        limit=10000,
+    ):
+        writer.writerow(row)
+    return Response("\ufeff" + output.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=attendance.csv"})
+
+
+@app.cli.command("create-admin-hash")
+def create_admin_hash():
+    from werkzeug.security import generate_password_hash
+    import getpass
+    password = getpass.getpass("New admin password: ")
+    if len(password) < 12:
+        raise SystemExit("Use at least 12 characters.")
+    print(generate_password_hash(password))
+
+
+refresh_known_faces()
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")), debug=False)
