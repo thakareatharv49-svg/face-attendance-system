@@ -15,4 +15,6 @@ jobs:
         with:
           python-version: "3.11"
       - name: Compile Python source
-        run: python -m compileall -q app.py database.py
+        run: python -m compileall -q app.py database.py tests
+      - name: Test database helpers
+        run: python -m unittest discover -s tests -v
