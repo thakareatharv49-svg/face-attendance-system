@@ -214,3 +214,26 @@ tr:hover td {
 .login-box label { margin:14px 0; }
 .login-box a { display:inline-block; margin-top:16px; color:var(--accent-blue); text-decoration:none; }
 @media(max-width:640px) { .container{padding:24px 14px}.page-head{align-items:flex-start;flex-direction:column}.stats-grid{grid-template-columns:1fr 1fr}.stat-card{padding:14px}.stat-card strong{font-size:25px}.nav-links{gap:8px} }
+
+
+/* Reports, calendar and account pages */
+.filter-form { display:flex; align-items:end; flex-wrap:wrap; gap:14px; }
+.filter-form label, .password-form label { display:grid; gap:6px; color:var(--text-secondary); font-size:13px; }
+.filter-form input, .password-form input { padding:11px; border:1px solid var(--border-color); border-radius:8px; background:#0d1117; color:var(--text-primary); }
+.filter-form .btn { text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
+.settings-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:18px; }
+.settings-grid div { padding:14px; border:1px solid var(--border-color); border-radius:10px; background:#0d1117; }
+.settings-grid span, .settings-grid strong { display:block; }
+.settings-grid strong { margin-top:8px; font-size:20px; }
+.profile-avatar { width:64px; height:64px; border-radius:50%; display:grid; place-items:center; background:linear-gradient(135deg,#388bfd,#8957e5); color:white; font-size:26px; font-weight:700; margin-bottom:14px; }
+.password-form { display:grid; gap:14px; max-width:460px; }
+.calendar-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:18px 0; }
+.calendar-toolbar a { text-decoration:none; }
+.calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:8px; }
+.calendar-weekday { text-align:center; color:var(--text-secondary); font-size:12px; font-weight:700; padding:8px 0; }
+.calendar-day { min-height:72px; padding:10px; border:1px solid var(--border-color); border-radius:9px; background:#0d1117; display:flex; flex-direction:column; gap:8px; }
+.calendar-present { border-color:var(--accent-green); background:rgba(63,185,80,.10); }
+.calendar-present small { color:var(--accent-green); font-size:11px; font-weight:700; }
+.calendar-empty { border-color:transparent; background:transparent; }
+.calendar-legend { display:inline-block; width:10px; height:10px; border-radius:3px; background:var(--accent-green); margin-right:6px; }
+@media(max-width:520px) { .calendar-grid{gap:4px}.calendar-day{min-height:52px;padding:6px;font-size:12px}.calendar-present small{font-size:9px}.calendar-toolbar{font-size:13px} }
