@@ -1,66 +1,109 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>AI Attendance System</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Face Attendance</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="container" style="text-align:center;">
-        <h1>🎯 AI Attendance System</h1>
-        <p class="subtitle">Look at the camera to mark your attendance</p>
-
-        <video id="video" width="480" height="360" autoplay playsinline></video>
+    <main class="container" style="text-align:center;">
+        <header class="page-head">
+            <div style="text-align:left;">
+                <p class="eyebrow">AI FACE ATTENDANCE</p>
+                <h1>Attendance kiosk</h1>
+                <p class="subtitle">Face recognition with blink-based liveness verification.</p>
+            </div>
+            <a class="btn btn-outline" href="{{ url_for('login') }}">Portal login</a>
+        </header>
+        <video id="video" width="480" height="360" autoplay playsinline muted></video>
         <canvas id="canvas" width="480" height="360" style="display:none;"></canvas>
-        <div id="status" class="status-box">Initializing camera...</div>
-    </div>
-
+        <div id="status" class="status-box">Starting camera…</div>
+        <p id="diagnostic" class="muted small" aria-live="polite">Waiting for camera.</p>
+        <p class="muted small">Keep one face in the frame. Blink naturally once after your name is recognized.</p>
+    </main>
     <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const status = document.getElementById('status');
-        const ctx = canvas.getContext('2d');
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const statusBox = document.getElementById("status");
+        const diagnostic = document.getElementById("diagnostic");
+        const context = canvas.getContext("2d");
+        let stream = null;
+        let isProcessing = false;
 
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+                    audio: false
+                });
                 video.srcObject = stream;
-                status.textContent = "Camera ready. Looking for face...";
-            })
-            .catch(err => {
-                status.textContent = "Camera access denied or unavailable.";
-            });
-
-        function captureAndSend() {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageData = canvas.toDataURL('image/jpeg', 0.7);
-
-            fetch('/process_frame', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: imageData })
-            })
-            .then(res => res.json())
-            .then(data => {
-                status.className = "status-box";
-                if (data.names.length === 0) {
-                    status.textContent = "No face detected";
-                } else {
-                    const name = data.names[0];
-                    if (name === "Unknown") {
-                        status.textContent = "Unknown person";
-                        status.classList.add("status-unknown");
-                    } else if (data.marked.includes(name)) {
-                        status.textContent = `✅ ${name} — Attendance marked (live)`;
-                        status.classList.add("status-live");
-                    } else {
-                        status.textContent = `${name} recognized — please blink to confirm`;
-                        status.classList.add("status-waiting");
-                    }
-                }
-            })
-            .catch(err => console.error(err));
+                await video.play();
+                statusBox.textContent = "Camera ready. Looking for your face…";
+                statusBox.className = "status-box status-waiting";
+            } catch (error) {
+                statusBox.textContent = "Camera unavailable. Allow camera permission and reload this page.";
+                statusBox.className = "status-box status-unknown";
+                diagnostic.textContent = error.message || "Camera permission was not granted.";
+            }
         }
 
-        setInterval(captureAndSend, 1000);
+        async function captureAndSend() {
+            if (isProcessing || video.readyState < 2 || !video.videoWidth) return;
+            isProcessing = true;
+            try {
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const response = await fetch("{{ url_for('process_frame') }}", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image: canvas.toDataURL("image/jpeg", 0.72) })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || "Attendance service error.");
+
+                statusBox.className = "status-box";
+                if (!data.names || data.names.length === 0) {
+                    statusBox.textContent = "No face detected — look directly at the camera.";
+                    statusBox.classList.add("status-waiting");
+                    diagnostic.textContent = "Waiting for a face.";
+                } else if (data.names[0] === "Multiple faces") {
+                    statusBox.textContent = "Please make sure only one person is in the camera frame.";
+                    statusBox.classList.add("status-waiting");
+                    diagnostic.textContent = "Multiple faces detected.";
+                } else if (data.names[0] === "Unknown") {
+                    statusBox.textContent = "Face not recognized. Ask the administrator to register you.";
+                    statusBox.classList.add("status-unknown");
+                    diagnostic.textContent = "No matching registered identity.";
+                } else {
+                    const name = data.names[0];
+                    diagnostic.textContent = data.ear === null ? "Face recognized; locating eye landmarks…" : "Eye aspect ratio: " + data.ear;
+                    if ((data.marked || []).includes(name)) {
+                        statusBox.textContent = "Attendance marked successfully for " + name + ".";
+                        statusBox.classList.add("status-live");
+                    } else if ((data.already_marked || []).includes(name)) {
+                        statusBox.textContent = name + " — attendance was already marked today.";
+                        statusBox.classList.add("status-live");
+                    } else if (data.is_blinking) {
+                        statusBox.textContent = name + " — blink detected. Open your eyes to confirm.";
+                        statusBox.classList.add("status-waiting");
+                    } else {
+                        statusBox.textContent = name + " recognized — please blink once to confirm attendance.";
+                        statusBox.classList.add("status-waiting");
+                    }
+                }
+            } catch (error) {
+                statusBox.textContent = "Connection problem. Retrying automatically…";
+                statusBox.className = "status-box status-unknown";
+                diagnostic.textContent = error.message;
+            } finally {
+                isProcessing = false;
+            }
+        }
+
+        window.addEventListener("beforeunload", () => {
+            if (stream) stream.getTracks().forEach(track => track.stop());
+        });
+        startCamera().then(() => window.setInterval(captureAndSend, 400));
     </script>
 </body>
 </html>

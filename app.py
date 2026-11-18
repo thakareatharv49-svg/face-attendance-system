@@ -1,5 +1,5 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for
-from werkzeug.security import check_password_hash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, abort, session
+from werkzeug.security import check_password_hash, generate_password_hash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import face_recognition
 import numpy as np
@@ -7,31 +7,87 @@ import cv2
 import os
 import math
 import base64
-from database import init_db, mark_attendance, get_all_attendance
+import re
+import secrets
+import time
+from functools import wraps
+from database import (init_db, mark_attendance, get_all_attendance, ensure_user_table, create_user, get_user_by_username, get_user_by_id, get_all_users, delete_user, get_attendance_for_name, get_today_attendance_count)
 
 app = Flask(__name__)
-app.secret_key = "change-this-secret-key-later"  # needed for login sessions
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("FLASK_HTTPS_ONLY", "").lower() == "true",
+    MAX_CONTENT_LENGTH=5 * 1024 * 1024,
+)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
+@app.context_processor
+def inject_csrf_token():
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_urlsafe(32)
+    return {"csrf_token": session["_csrf_token"]}
+
+@app.before_request
+def protect_form_posts():
+    # The camera kiosk posts frame JSON without a login; all browser form POSTs use CSRF tokens.
+    if request.method == "POST" and request.endpoint != "process_frame":
+        expected = session.get("_csrf_token", "")
+        supplied = request.form.get("_csrf_token", "")
+        if not expected or not supplied or not secrets.compare_digest(expected, supplied):
+            abort(400)
+
 # --- Simple hardcoded admin account ---
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD_HASH = "scrypt:32768:8:1$vh77OL314GVlUTsE$17c8f4d6d45b96d6342f9e421e92deb2a3e13872f0e3d4794a3b9cff6bb421c8dd4fc96403305cbc705ae43a644dd873a22240ca12f9407b43fe74038a1cd4bd"
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", "scrypt:32768:8:1$vh77OL314GVlUTsE$17c8f4d6d45b96d6342f9e421e92deb2a3e13872f0e3d4794a3b9cff6bb421c8dd4fc96403305cbc705ae43a644dd873a22240ca12f9407b43fe74038a1cd4bd")
 
 class AdminUser(UserMixin):
     id = "admin"
+
+class PortalUser(UserMixin):
+    def __init__(self, row):
+        self.id = "user:" + str(row["id"])
+        self.name = row["name"]
+        self.username = row["username"]
+        self.role = "user"
 
 @login_manager.user_loader
 def load_user(user_id):
     if user_id == "admin":
         return AdminUser()
+    if user_id and user_id.startswith("user:"):
+        row = get_user_by_id(user_id.split(":", 1)[1])
+        return PortalUser(row) if row else None
     return None
+
+def admin_required(view):
+    @wraps(view)
+    @login_required
+    def wrapped(*args, **kwargs):
+        if current_user.get_id() != "admin":
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
+
+def user_required(view):
+    @wraps(view)
+    @login_required
+    def wrapped(*args, **kwargs):
+        if not current_user.get_id().startswith("user:"):
+            abort(403)
+        return view(*args, **kwargs)
+    return wrapped
 
 # --- Face recognition setup (same as before) ---
 KNOWN_FACES_DIR = "known_faces"
-EAR_THRESHOLD = 0.21
+os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
+BLINK_CLOSED_THRESHOLD = 0.17
+BLINK_OPEN_THRESHOLD = 0.22
+BLINK_MAX_DURATION_SECONDS = 2.0
 
 def load_known_faces():
     known_encodings = []
@@ -57,10 +113,10 @@ def eye_aspect_ratio(eye_points):
     return (vertical1 + vertical2) / (2.0 * horizontal)
 
 init_db()
+ensure_user_table()
 known_encodings, known_names = load_known_faces()
 print(f"Loaded {len(known_names)} known face(s): {known_names}")
 
-session_state = {}
 
 
 # --- PUBLIC KIOSK PAGE (no login needed) ---
@@ -71,50 +127,97 @@ def index():
 
 @app.route("/process_frame", methods=["POST"])
 def process_frame():
-    data = request.json
-    image_data = data["image"].split(",")[1]
-    img_bytes = base64.b64decode(image_data)
+    data = request.get_json(silent=True) or {}
+    image = data.get("image", "")
+    if not isinstance(image, str) or "," not in image:
+        return jsonify({"error": "Invalid image payload", "names": [], "marked": [], "already_marked": []}), 400
+
+    try:
+        img_bytes = base64.b64decode(image.split(",", 1)[1], validate=True)
+    except (ValueError, TypeError):
+        return jsonify({"error": "Invalid image encoding", "names": [], "marked": [], "already_marked": []}), 400
+
     np_arr = np.frombuffer(img_bytes, np.uint8)
     frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    if frame is None:
+        return jsonify({"error": "Invalid image frame", "names": [], "marked": [], "already_marked": []}), 400
 
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
     face_locations = face_recognition.face_locations(rgb)
+    if not face_locations:
+        return jsonify({"names": [], "is_blinking": False, "blink_confirmed": False,
+                        "ear": None, "marked": [], "already_marked": []})
+    if len(face_locations) != 1:
+        return jsonify({"names": ["Multiple faces"], "is_blinking": False,
+                        "blink_confirmed": False, "ear": None, "marked": [],
+                        "already_marked": []})
+
     face_encodings = face_recognition.face_encodings(rgb, face_locations)
+    if not face_encodings:
+        return jsonify({"names": ["Unknown"], "is_blinking": False,
+                        "blink_confirmed": False, "ear": None, "marked": [],
+                        "already_marked": []})
 
-    results = []
-    for encoding in face_encodings:
-        distances = face_recognition.face_distance(known_encodings, encoding)
-        name = "Unknown"
-        if len(distances) > 0:
-            best_index = distances.argmin()
-            if distances[best_index] < 0.6:
-                name = known_names[best_index]
-        results.append(name)
+    distances = face_recognition.face_distance(known_encodings, face_encodings[0])
+    name = "Unknown"
+    if len(distances):
+        best_index = int(distances.argmin())
+        if distances[best_index] < 0.6:
+            name = known_names[best_index]
+    if name == "Unknown":
+        return jsonify({"names": ["Unknown"], "is_blinking": False,
+                        "blink_confirmed": False, "ear": None, "marked": [],
+                        "already_marked": []})
 
-    is_blinking = False
-    landmarks_list = face_recognition.face_landmarks(rgb)
-    if landmarks_list:
-        landmarks = landmarks_list[0]
-        left_ear = eye_aspect_ratio(landmarks['left_eye'])
-        right_ear = eye_aspect_ratio(landmarks['right_eye'])
-        avg_ear = (left_ear + right_ear) / 2.0
-        if avg_ear < EAR_THRESHOLD:
-            is_blinking = True
+    landmarks_list = face_recognition.face_landmarks(rgb, face_locations)
+    if not landmarks_list:
+        return jsonify({"names": [name], "is_blinking": False,
+                        "blink_confirmed": False, "ear": None, "marked": [],
+                        "already_marked": []})
+
+    landmarks = landmarks_list[0]
+    left_ear = eye_aspect_ratio(landmarks["left_eye"])
+    right_ear = eye_aspect_ratio(landmarks["right_eye"])
+    avg_ear = (left_ear + right_ear) / 2.0
+    now = time.monotonic()
+
+    blink_states = session.get("blink_states", {})
+    state = blink_states.get(name, {
+        "eyes_closed": False, "closed_frames": 0, "closed_at": None
+    })
+    if state["eyes_closed"] and state["closed_at"] and now - state["closed_at"] > BLINK_MAX_DURATION_SECONDS:
+        state.update({"eyes_closed": False, "closed_frames": 0, "closed_at": None})
+
+    blink_confirmed = False
+    if avg_ear < BLINK_CLOSED_THRESHOLD:
+        if not state["eyes_closed"]:
+            state["closed_at"] = now
+        state["eyes_closed"] = True
+        state["closed_frames"] += 1
+    elif avg_ear > BLINK_OPEN_THRESHOLD:
+        if state["eyes_closed"] and state["closed_frames"] >= 1:
+            blink_confirmed = True
+        state.update({"eyes_closed": False, "closed_frames": 0, "closed_at": None})
+
+    blink_states[name] = state
+    session["blink_states"] = blink_states
 
     marked = []
-    for name in results:
-        if name != "Unknown":
-            key = name
-            if key not in session_state:
-                session_state[key] = {"blinked": False}
-            if is_blinking:
-                session_state[key]["blinked"] = True
-            if session_state[key]["blinked"]:
-                if mark_attendance(name):
-                    marked.append(name)
+    already_marked = []
+    if blink_confirmed:
+        if mark_attendance(name):
+            marked.append(name)
+        else:
+            already_marked.append(name)
 
-    return jsonify({"names": results, "is_blinking": is_blinking, "marked": marked})
+    return jsonify({
+        "names": [name],
+        "is_blinking": avg_ear < BLINK_CLOSED_THRESHOLD,
+        "blink_confirmed": blink_confirmed,
+        "ear": round(float(avg_ear), 3),
+        "marked": marked,
+        "already_marked": already_marked,
+    })
 
 
 # --- LOGIN ---
@@ -124,11 +227,14 @@ def login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-        if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
+        if username == ADMIN_USERNAME and password and check_password_hash(ADMIN_PASSWORD_HASH, password):
             login_user(AdminUser())
             return redirect(url_for("admin_dashboard"))
-        else:
-            error = "Invalid username or password"
+        account = get_user_by_username(username or "")
+        if account and check_password_hash(account["password_hash"], password or ""):
+            login_user(PortalUser(account))
+            return redirect(url_for("user_dashboard"))
+        error = "Invalid username or password"
     return render_template("login.html", error=error)
 
 
@@ -142,32 +248,42 @@ def logout():
 # --- ADMIN DASHBOARD (login required) ---
 # --- ADMIN DASHBOARD (login required) ---
 @app.route("/admin")
-@login_required
+@admin_required
 def admin_dashboard():
     records = get_all_attendance()
-    return render_template("admin.html", records=records)
+    return render_template("admin.html", records=records, users=get_all_users(), today_count=get_today_attendance_count(), face_count=len(known_names))
 
 
 @app.route("/admin/register", methods=["GET", "POST"])
-@login_required
+@admin_required
 def register():
     message = None
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         image_data = request.form.get("image")
 
-        if not name or not image_data:
-            message = "Name and photo are both required."
+        if not re.fullmatch(r"[A-Za-z0-9 _.-]{1,60}", name):
+            message = "Use 1–60 letters, numbers, spaces, dots, underscores or hyphens for the name."
+        elif not image_data or "," not in image_data:
+            message = "Name and a valid photo are both required."
         else:
-            img_bytes = base64.b64decode(image_data.split(",")[1])
+            try:
+                img_bytes = base64.b64decode(image_data.split(",", 1)[1], validate=True)
+            except (ValueError, TypeError):
+                message = "The uploaded photo could not be read."
+                return render_template("register.html", message=message)
             np_arr = np.frombuffer(img_bytes, np.uint8)
             frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            if frame is None:
+                message = "The uploaded photo is invalid. Please capture it again."
+                return render_template("register.html", message=message)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
             encodings = face_recognition.face_encodings(rgb)
             if len(encodings) == 0:
                 message = "No face detected in the photo. Try again with a clearer shot."
             else:
+                os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
                 save_path = os.path.join(KNOWN_FACES_DIR, f"{name}.jpg")
                 cv2.imwrite(save_path, frame)
 
@@ -178,7 +294,7 @@ def register():
 
     return render_template("register.html", message=message)
 @app.route("/admin/people")
-@login_required
+@admin_required
 def people_list():
     people = []
     for filename in os.listdir(KNOWN_FACES_DIR):
@@ -188,7 +304,7 @@ def people_list():
 
 
 @app.route("/admin/people/delete/<name>", methods=["POST"])
-@login_required
+@admin_required
 def delete_person(name):
     for filename in os.listdir(KNOWN_FACES_DIR):
         if os.path.splitext(filename)[0] == name:
@@ -199,5 +315,62 @@ def delete_person(name):
 
     return redirect(url_for("people_list"))
 
+@app.route("/admin/users", methods=["GET", "POST"])
+@admin_required
+def admin_users():
+    message = None
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip().lower()
+        name = request.form.get("name", "").strip()
+        password = request.form.get("password", "")
+        if not re.fullmatch(r"[a-z0-9._-]{3,32}", username):
+            error = "Username must be 3–32 characters (letters, numbers, dot, underscore or hyphen)."
+        elif not name or len(name) > 80:
+            error = "Enter a valid registered person's name."
+        elif len(password) < 8:
+            error = "Password must contain at least 8 characters."
+        elif name not in known_names:
+            error = "Register this person's face first, using the exact same name."
+        else:
+            try:
+                create_user(username, name, generate_password_hash(password))
+                message = "Account created for " + name + "."
+            except Exception:
+                error = "That username or person already has an account."
+    return render_template("admin_users.html", users=get_all_users(), message=message, error=error, people=known_names)
+
+
+@app.route("/admin/users/delete/<int:user_id>", methods=["POST"])
+@admin_required
+def admin_delete_user(user_id):
+    delete_user(user_id)
+    return redirect(url_for("admin_users"))
+
+
+@app.route("/user")
+@user_required
+def user_dashboard():
+    records = get_attendance_for_name(current_user.name)
+    today = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+    present_days = len({row[2][:10] for row in records})
+    today_present = any(row[2].startswith(today) for row in records)
+    return render_template("user_dashboard.html", records=records[:10],
+                           total_days=present_days, today_present=today_present,
+                           person_name=current_user.name)
+
+
+@app.route("/user/attendance")
+@user_required
+def user_attendance():
+    records = get_attendance_for_name(current_user.name)
+    return render_template("user_attendance.html", records=records, person_name=current_user.name)
+
+
+@app.errorhandler(403)
+def forbidden(_error):
+    return render_template("forbidden.html"), 403
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=False)

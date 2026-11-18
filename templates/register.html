@@ -20,7 +20,7 @@
         <br>
         <button onclick="capture()" class="btn btn-primary">📸 Capture & Register</button>
 
-        <form id="hiddenForm" method="POST" style="display:none;">
+        <form id="hiddenForm" method="POST" style="display:none;"><input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="name" id="hiddenName">
             <input type="hidden" name="image" id="hiddenImage">
         </form>
