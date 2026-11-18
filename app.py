@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, abort
+from flask import Flask, render_template, request, jsonify, redirect, url_for, abort, session
 from werkzeug.security import check_password_hash, generate_password_hash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 import face_recognition
@@ -8,15 +8,37 @@ import os
 import math
 import base64
 import re
+import secrets
 from functools import wraps
 from database import (init_db, mark_attendance, get_all_attendance, ensure_user_table, create_user, get_user_by_username, get_user_by_id, get_all_users, delete_user, get_attendance_for_name, get_today_attendance_count)
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "local-demo-change-this-key-before-deployment")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=os.environ.get("FLASK_HTTPS_ONLY", "").lower() == "true",
+    MAX_CONTENT_LENGTH=5 * 1024 * 1024,
+)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
+
+@app.context_processor
+def inject_csrf_token():
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_urlsafe(32)
+    return {"csrf_token": session["_csrf_token"]}
+
+@app.before_request
+def protect_form_posts():
+    # The camera kiosk posts frame JSON without a login; all browser form POSTs use CSRF tokens.
+    if request.method == "POST" and request.endpoint != "process_frame":
+        expected = session.get("_csrf_token", "")
+        supplied = request.form.get("_csrf_token", "")
+        if not expected or not supplied or not secrets.compare_digest(expected, supplied):
+            abort(400)
 
 # --- Simple hardcoded admin account ---
 ADMIN_USERNAME = "admin"
@@ -190,18 +212,28 @@ def register():
         name = request.form.get("name", "").strip()
         image_data = request.form.get("image")
 
-        if not name or not image_data:
-            message = "Name and photo are both required."
+        if not re.fullmatch(r"[A-Za-z0-9 _.-]{1,60}", name):
+            message = "Use 1–60 letters, numbers, spaces, dots, underscores or hyphens for the name."
+        elif not image_data or "," not in image_data:
+            message = "Name and a valid photo are both required."
         else:
-            img_bytes = base64.b64decode(image_data.split(",")[1])
+            try:
+                img_bytes = base64.b64decode(image_data.split(",", 1)[1], validate=True)
+            except (ValueError, TypeError):
+                message = "The uploaded photo could not be read."
+                return render_template("register.html", message=message)
             np_arr = np.frombuffer(img_bytes, np.uint8)
             frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            if frame is None:
+                message = "The uploaded photo is invalid. Please capture it again."
+                return render_template("register.html", message=message)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
             encodings = face_recognition.face_encodings(rgb)
             if len(encodings) == 0:
                 message = "No face detected in the photo. Try again with a clearer shot."
             else:
+                os.makedirs(KNOWN_FACES_DIR, exist_ok=True)
                 save_path = os.path.join(KNOWN_FACES_DIR, f"{name}.jpg")
                 cv2.imwrite(save_path, frame)
 
