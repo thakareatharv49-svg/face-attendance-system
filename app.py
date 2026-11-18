@@ -181,10 +181,12 @@ def process_frame():
     avg_ear = (left_ear + right_ear) / 2.0
     now = time.monotonic()
 
-    blink_states = session.get("blink_states", {})
-    state = blink_states.get(name, {
-        "eyes_closed": False, "closed_frames": 0, "closed_at": None
-    })
+    state = session.get("blink_state", {})
+    if state.get("name") != name:
+        state = {
+            "name": name, "eyes_closed": False,
+            "closed_frames": 0, "closed_at": None
+        }
     if state["eyes_closed"] and state["closed_at"] and now - state["closed_at"] > BLINK_MAX_DURATION_SECONDS:
         state.update({"eyes_closed": False, "closed_frames": 0, "closed_at": None})
 
@@ -199,8 +201,7 @@ def process_frame():
             blink_confirmed = True
         state.update({"eyes_closed": False, "closed_frames": 0, "closed_at": None})
 
-    blink_states[name] = state
-    session["blink_states"] = blink_states
+    session["blink_state"] = state
 
     marked = []
     already_marked = []
