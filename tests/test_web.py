@@ -28,6 +28,8 @@ def test_admin_requires_login():
 
 def test_admin_pages_render(monkeypatch):
     import app as app_module
+    import database
+    database.init_db()
     app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
     app_module.login_manager.session_protection = None
     client = app_module.app.test_client()
