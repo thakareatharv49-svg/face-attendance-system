@@ -4,6 +4,9 @@ on:
     branches: [main, release/production-readiness]
   pull_request:
     branches: [main]
+concurrency:
+  group: face-attendance-ci-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
