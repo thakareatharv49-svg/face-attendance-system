@@ -138,3 +138,30 @@ def get_today_attendance_count():
         ).fetchone()[0]
     finally:
         conn.close()
+
+
+def update_user_password(user_id, password_hash):
+    ensure_user_table()
+    conn = sqlite3.connect(DB_NAME)
+    try:
+        cur = conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (password_hash, user_id)
+        )
+        conn.commit()
+        return cur.rowcount == 1
+    finally:
+        conn.close()
+
+
+def get_attendance_between(start_date, end_date):
+    conn = sqlite3.connect(DB_NAME)
+    try:
+        return conn.execute(
+            "SELECT id, name, timestamp FROM attendance "
+            "WHERE substr(timestamp, 1, 10) BETWEEN ? AND ? "
+            "ORDER BY timestamp DESC",
+            (start_date, end_date)
+        ).fetchall()
+    finally:
+        conn.close()
