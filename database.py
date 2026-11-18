@@ -41,23 +41,19 @@ def init_db():
             SET attendance_date = substr(timestamp, 1, 10)
             WHERE attendance_date IS NULL OR attendance_date = ''
         """)
-        # Keep historical duplicates intact; the index protects new writes.
-        duplicates = conn.execute("""
-            SELECT lower(name) AS n, attendance_date AS d
-            FROM attendance WHERE attendance_date IS NOT NULL
-            GROUP BY lower(name), attendance_date HAVING COUNT(*) > 1
-        """).fetchall()
-        for item in duplicates:
-            rows = conn.execute("""
-                SELECT id FROM attendance
-                WHERE lower(name) = ? AND attendance_date = ?
-                ORDER BY id
-            """, (item["n"], item["d"])).fetchall()
-            for row in rows[1:]:
-                conn.execute("DELETE FROM attendance WHERE id = ?", (row["id"],))
+        # A separate guard table prevents new duplicates without deleting or rewriting
+        # any historical attendance rows from an earlier version of the app.
         conn.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_person_day
-            ON attendance(lower(name), attendance_date)
+            CREATE TABLE IF NOT EXISTS attendance_daily_guard (
+                name_key TEXT NOT NULL,
+                attendance_date TEXT NOT NULL,
+                PRIMARY KEY (name_key, attendance_date)
+            )
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO attendance_daily_guard(name_key, attendance_date)
+            SELECT lower(name), attendance_date FROM attendance
+            WHERE attendance_date IS NOT NULL AND attendance_date != ''
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_attendance_timestamp ON attendance(timestamp DESC)")
 
@@ -65,12 +61,20 @@ def init_db():
 def mark_attendance(name):
     """Atomically mark a person once per local calendar day."""
     now = datetime.now()
+    name = name.strip()
+    day = now.date().isoformat()
     with connection() as conn:
-        cursor = conn.execute("""
-            INSERT OR IGNORE INTO attendance(name, timestamp, attendance_date)
+        guard = conn.execute("""
+            INSERT OR IGNORE INTO attendance_daily_guard(name_key, attendance_date)
+            VALUES (?, ?)
+        """, (name.casefold(), day))
+        if guard.rowcount != 1:
+            return False
+        conn.execute("""
+            INSERT INTO attendance(name, timestamp, attendance_date)
             VALUES (?, ?, ?)
-        """, (name, now.strftime("%Y-%m-%d %H:%M:%S"), now.date().isoformat()))
-        return cursor.rowcount == 1
+        """, (name, now.strftime("%Y-%m-%d %H:%M:%S"), day))
+        return True
 
 
 def get_all_attendance(limit=1000):
