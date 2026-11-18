@@ -1,0 +1,4 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin profile</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
+<body><main class="container"><header class="page-head"><div><p class="eyebrow">ADMIN ACCOUNT</p><h1>Administrator profile</h1><p class="subtitle">Administrator identity and sign-in configuration.</p></div><a class="btn btn-outline" href="{{ url_for('admin_dashboard') }}">← Dashboard</a></header>
+<section class="card"><div class="profile-avatar">A</div><h2>{{ admin_username }}</h2><p class="muted">Administrator account</p><p>Admin credentials are configured through environment variables. Update ADMIN_USERNAME and ADMIN_PASSWORD_HASH in the server environment, then restart the app to rotate credentials.</p><a class="btn btn-primary" href="{{ url_for('admin_settings') }}">View system settings</a></section></main></body></html>
