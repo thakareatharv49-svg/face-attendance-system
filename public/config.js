@@ -1,0 +1,1 @@
+window.ATTEND_AI_BACKEND_URL = "";
