@@ -155,7 +155,7 @@ def login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-        if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD_HASH, password):
+        if username == ADMIN_USERNAME and password and check_password_hash(ADMIN_PASSWORD_HASH, password):
             login_user(AdminUser())
             return redirect(url_for("admin_dashboard"))
         account = get_user_by_username(username or "")
@@ -179,7 +179,7 @@ def logout():
 @admin_required
 def admin_dashboard():
     records = get_all_attendance()
-    return render_template("admin.html", records=records, users=get_all_users(), today_count=get_today_attendance_count())
+    return render_template("admin.html", records=records, users=get_all_users(), today_count=get_today_attendance_count(), face_count=len(known_names))
 
 
 @app.route("/admin/register", methods=["GET", "POST"])
