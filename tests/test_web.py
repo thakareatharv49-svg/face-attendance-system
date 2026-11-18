@@ -24,3 +24,16 @@ def test_admin_requires_login():
     app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
     response = app_module.app.test_client().get("/admin")
     assert response.status_code in (302, 401)
+
+
+def test_admin_pages_render(monkeypatch):
+    import app as app_module
+    app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+    app_module.login_manager.session_protection = None
+    client = app_module.app.test_client()
+    with client.session_transaction() as session:
+        session["_user_id"] = "admin"
+        session["_fresh"] = True
+    assert client.get("/admin").status_code == 200
+    assert client.get("/admin/register").status_code == 200
+    assert client.get("/admin/people").status_code == 200
