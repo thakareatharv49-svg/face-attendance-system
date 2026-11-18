@@ -28,7 +28,7 @@ Generate a password hash:
 python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('Use-A-Long-Unique-Password'))"
 ```
 
-Put the generated value in ADMIN_PASSWORD_HASH in .env. Set SECRET_KEY to a long random value. Never commit a real .env file or credentials.
+Put the generated value in ADMIN_PASSWORD_HASH in .env. Set SECRET_KEY to a long random value and APP_TIMEZONE to your local timezone (the deployment Blueprint defaults to Asia/Kolkata). Never commit a real .env file or credentials.
 
 Start the server:
 ```powershell
