@@ -31,6 +31,14 @@ class UserAccountDatabaseTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][1], "Demo User")
 
+    def test_password_update_and_date_range_report(self):
+        user_id = database.create_user("demo.user", "Demo User", "old-hash")
+        self.assertTrue(database.update_user_password(user_id, "new-hash"))
+        self.assertEqual(database.get_user_by_username("demo.user")["password_hash"], "new-hash")
+        database.mark_attendance("Demo User")
+        today = database.datetime.now().strftime("%Y-%m-%d")
+        self.assertEqual(len(database.get_attendance_between(today, today)), 1)
+
     def test_deleting_account_does_not_delete_attendance(self):
         user_id = database.create_user("demo.user", "Demo User", "hashed-password")
         database.mark_attendance("Demo User")
