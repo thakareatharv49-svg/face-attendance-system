@@ -13,7 +13,7 @@ import time
 import csv
 import io
 import calendar as calendar_module
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import wraps
 from database import (init_db, mark_attendance, get_all_attendance, ensure_user_table, create_user, get_user_by_username, get_user_by_id, get_all_users, delete_user, get_attendance_for_name, get_today_attendance_count, update_user_password, get_attendance_between)
 
@@ -450,10 +450,17 @@ def user_calendar():
     records = get_attendance_for_name(current_user.name)
     present_dates = {row[2][:10] for row in records if row[2].startswith(month_value)}
     weeks = calendar_module.monthcalendar(month_date.year, month_date.month)
-    return render_template("user_calendar.html", weeks=weeks,
+    day_cells = [[None if day == 0 else {
+        "day": day,
+        "date": f"{month_date.year:04d}-{month_date.month:02d}-{day:02d}",
+        "present": f"{month_date.year:04d}-{month_date.month:02d}-{day:02d}" in present_dates
+    } for day in week] for week in weeks]
+    previous_month = (month_date.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    next_month = (month_date.replace(day=28) + timedelta(days=4)).replace(day=1).strftime("%Y-%m")
+    return render_template("user_calendar.html", weeks=day_cells,
                            month_label=month_date.strftime("%B %Y"),
-                           month_value=month_value, present_dates=present_dates,
-                           person_name=current_user.name)
+                           month_value=month_value, previous_month=previous_month,
+                           next_month=next_month, person_name=current_user.name)
 
 
 @app.route("/user/profile", methods=["GET", "POST"])
