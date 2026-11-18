@@ -26,8 +26,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip wheel
           pip install -r requirements.txt
-      - name: Run tests
+      - name: Run automated application tests
         env:
           SECRET_KEY: test-secret-key-that-is-long-enough
           ADMIN_PASSWORD_HASH: ""
-        run: pytest -q
+          DATABASE_PATH: /tmp/attendai-ci.db
+          KNOWN_FACES_DIR: /tmp/attendai-ci-known-faces
+        run: pytest -q tests/
