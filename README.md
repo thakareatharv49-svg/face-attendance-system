@@ -28,7 +28,7 @@ Generate an admin password hash:
 python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('Use-A-Long-Unique-Password'))"
 ~~~
 
-Put the generated value in ADMIN_PASSWORD_HASH in .env. Set SECRET_KEY to a long random value and APP_TIMEZONE to your local timezone (Asia/Kolkata for this deployment). Never commit a real .env file or credentials.
+Put the generated value in ADMIN_PASSWORD_HASH in .env. Set SECRET_KEY to a long random value and APP_TIMEZONE to Asia/Kolkata. Never commit a real .env file or credentials.
 
 Start locally with:
 ~~~powershell
@@ -37,18 +37,19 @@ python app.py
 
 Open the kiosk at http://127.0.0.1:5000/, admin at http://127.0.0.1:5000/login, and health at http://127.0.0.1:5000/health.
 
-## Free hybrid deployment (recommended for the college demo)
+## Free hybrid demo deployment
 
-Use Vercel Hobby as the public HTTPS reverse-proxy front door and Cloudflare Quick Tunnel to connect it to the Flask backend running on your Windows PC. Face recognition, SQLite, and registered face images stay on your PC.
+Use Vercel Hobby to host a static AttendAI launch page. The launch page links directly to the existing Flask application exposed by Cloudflare Quick Tunnel. Face recognition, SQLite, and registered face images stay on your Windows PC.
 
 Follow **HYBRID_DEPLOYMENT.md** for the exact setup and PowerShell scripts.
 
 Important limitations:
+- Vercel hosts only the static landing page; it does not proxy backend traffic.
 - The PC, backend process, internet connection, and tunnel must stay running during the demo.
-- Cloudflare Quick Tunnel URLs are temporary and change when restarted; update vercel.json and redeploy Vercel whenever the URL changes.
-- If the PC sleeps or the tunnel stops, the public website becomes unavailable.
-- Vercel Hobby is intended for personal, non-commercial use; check its terms for your use case.
-- This is a demo deployment, not a reliable always-on production host.
+- Cloudflare Quick Tunnel URLs are temporary and change when restarted; update public/config.js and redeploy Vercel whenever the URL changes.
+- If the PC sleeps or the tunnel stops, the attendance app becomes unavailable.
+- Vercel Hobby is for personal, non-commercial use; check its terms for your use case.
+- This is a demo deployment, not an always-on production host.
 
 ## Alternative deployment
 
@@ -67,4 +68,4 @@ Face images are sensitive biometric data. Obtain clear consent, provide an alter
 - Camera does not open: use localhost or HTTPS, allow camera permission, and reload.
 - Face not recognized: register one clear, front-facing image per person with adequate lighting.
 - dlib build fails: use Python 3.11 and a host with CMake, a C++ compiler, and native numerical libraries.
-- Data disappears: in the free hybrid setup, data is stored locally on the Windows PC. Back up the database and known_faces directory.
+- Data needs backup: copy the SQLite database and known_faces directory from the Windows PC.
