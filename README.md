@@ -6,10 +6,12 @@ A face recognition-based attendance system with liveness detection (anti-spoofin
 
 - 🛡️ Separate role-protected admin and personal user dashboards
 - 👤 Admin-managed user accounts linked to registered face identities
-- 🔒 Password-hashed user credentials and per-user attendance history
+- 🔒 Password-hashed user credentials, password changes and per-user attendance history
+- 📊 Admin date-range reports and CSV export
+- 🗓️ Personal attendance calendar and profile settings
 
 - 🎥 Live face detection and recognition
-- 👁️ Blink-based liveness detection (prevents photo spoofing)
+- 👁️ Blink-based liveness check to help deter static-photo spoofing
 - 📋 Automatic attendance logging with SQLite
 - 🌐 Browser-based kiosk page — works from any device's camera
 - 🔐 Admin login system
