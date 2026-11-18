@@ -30,6 +30,7 @@
         const context = canvas.getContext("2d");
         let stream = null;
         let isProcessing = false;
+        let completedName = null;
 
         async function startCamera() {
             try {
@@ -63,24 +64,38 @@
 
                 statusBox.className = "status-box";
                 if (!data.names || data.names.length === 0) {
+                    completedName = null;
                     statusBox.textContent = "No face detected — look directly at the camera.";
                     statusBox.classList.add("status-waiting");
                     diagnostic.textContent = "Waiting for a face.";
                 } else if (data.names[0] === "Multiple faces") {
+                    completedName = null;
                     statusBox.textContent = "Please make sure only one person is in the camera frame.";
                     statusBox.classList.add("status-waiting");
                     diagnostic.textContent = "Multiple faces detected.";
                 } else if (data.names[0] === "Unknown") {
+                    completedName = null;
                     statusBox.textContent = "Face not recognized. Ask the administrator to register you.";
                     statusBox.classList.add("status-unknown");
                     diagnostic.textContent = "No matching registered identity.";
                 } else {
                     const name = data.names[0];
+                    if (completedName && completedName !== name) completedName = null;
+                    if (completedName === name) {
+                        statusBox.className = "status-box status-confirmed";
+                        statusBox.textContent = "✓  Attendance confirmed for " + name + " — you are done for today!";
+                        diagnostic.textContent = "Your attendance confirmation is complete.";
+                        return;
+                    }
                     diagnostic.textContent = data.ear === null ? "Face recognized; locating eye landmarks…" : "Eye aspect ratio: " + data.ear;
                     if ((data.marked || []).includes(name)) {
+                        completedName = name;
+                        statusBox.className = "status-box status-confirmed";
                         statusBox.textContent = "Attendance marked successfully for " + name + ".";
                         statusBox.classList.add("status-live");
                     } else if ((data.already_marked || []).includes(name)) {
+                        completedName = name;
+                        statusBox.className = "status-box status-confirmed";
                         statusBox.textContent = name + " — attendance was already marked today.";
                         statusBox.classList.add("status-live");
                     } else if (data.is_blinking) {
