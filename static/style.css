@@ -188,3 +188,29 @@ tr:hover td {
 .badge-green { background: rgba(63,185,80,0.15); color: var(--accent-green); }
 .badge-yellow { background: rgba(210,153,34,0.15); color: var(--accent-yellow); }
 .badge-red { background: rgba(248,81,73,0.15); color: var(--accent-red); }
+
+/* Role-based dashboard components */
+.muted { color: var(--text-secondary); }
+.small { font-size: 12px; }
+.eyebrow { color: var(--accent-blue); font-size: 11px; font-weight: 700; letter-spacing: 1.8px; margin: 0 0 10px; }
+.page-head, .section-head { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.page-head { margin-bottom: 18px; }
+.section-head h2 { margin:0; }
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin:22px 0; }
+.stat-card { background:linear-gradient(145deg,#182333,#121923); border:1px solid var(--border-color); border-radius:14px; padding:20px; }
+.stat-card span, .stat-card small { display:block; color:var(--text-secondary); }
+.stat-card strong { display:block; font-size:32px; margin:8px 0; }
+.stat-card small { font-size:12px; }
+.btn-outline { display:inline-flex; align-items:center; justify-content:center; color:var(--text-primary); background:transparent; border:1px solid var(--border-color); text-decoration:none; }
+.full-width { width:100%; margin-top:12px; }
+.account-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; align-items:end; }
+.account-form label, form label { display:block; color:var(--text-secondary); font-size:13px; }
+.account-form input, .account-form select, form label input { display:block; width:100%; margin-top:7px; padding:12px; border-radius:8px; border:1px solid var(--border-color); background:#0d1117; color:var(--text-primary); }
+.notice { padding:12px 14px; border-radius:9px; background:var(--bg-card); border:1px solid var(--border-color); }
+.notice.success, .good-text { color:var(--accent-green); }
+.pill-present { display:inline-block; padding:4px 9px; border-radius:30px; color:var(--accent-green); background:rgba(63,185,80,.12); font-size:12px; font-weight:600; }
+.table-wrap { width:100%; overflow-x:auto; }
+.login-box { max-width:420px; width:calc(100% - 32px); }
+.login-box label { margin:14px 0; }
+.login-box a { display:inline-block; margin-top:16px; color:var(--accent-blue); text-decoration:none; }
+@media(max-width:640px) { .container{padding:24px 14px}.page-head{align-items:flex-start;flex-direction:column}.stats-grid{grid-template-columns:1fr 1fr}.stat-card{padding:14px}.stat-card strong{font-size:25px}.nav-links{gap:8px} }
