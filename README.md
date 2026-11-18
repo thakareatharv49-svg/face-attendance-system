@@ -29,10 +29,13 @@ A face recognition-based attendance system with liveness detection (anti-spoofin
 1. Clone the repository
 2. Create a virtual environment
 3. Install dependencies
+4. Set a strong `FLASK_SECRET_KEY` environment variable before running the app
 4. Run the app
 5. Open in your browser
    - User/kiosk page: `http://localhost:5000/`
-   - Admin panel: `http://localhost:5000/admin` (default login: `admin` / `admin123` — **change this before real use**)
+   - Sign-in: `http://localhost:5000/login` (admin and user accounts)
+   - Admin dashboard: `http://localhost:5000/admin` (admin credentials are configured in `app.py`)
+   - User dashboard: `http://localhost:5000/user` (accounts are created by the admin)
 
 ## How it works
 
