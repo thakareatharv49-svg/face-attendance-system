@@ -29,7 +29,7 @@ KNOWN_FACES_DIR = Path(os.environ.get("KNOWN_FACES_DIR", BASE_DIR / "known_faces
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
 FACE_MATCH_TOLERANCE = float(os.environ.get("FACE_MATCH_TOLERANCE", "0.48"))
 EAR_THRESHOLD = float(os.environ.get("EAR_THRESHOLD", "0.21"))
-BLINK_CLOSED_FRAMES = 2
+BLINK_CLOSED_FRAMES = 1
 LIVENESS_TTL_SECONDS = 20
 NAME_PATTERN = re.compile(r"^[\w .'-]{1,60}$", re.UNICODE)
 
