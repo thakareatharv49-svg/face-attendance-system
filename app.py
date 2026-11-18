@@ -116,7 +116,6 @@ ensure_user_table()
 known_encodings, known_names = load_known_faces()
 print(f"Loaded {len(known_names)} known face(s): {known_names}")
 
-session_state = {}
 
 
 # --- PUBLIC KIOSK PAGE (no login needed) ---
