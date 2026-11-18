@@ -50,7 +50,8 @@
         }
 
         async function captureAndSend() {
-            if (isProcessing || video.readyState < 2 || !video.videoWidth) return;
+            // Once the server confirms attendance, keep the success screen visible.
+            if (completedName || isProcessing || video.readyState < 2 || !video.videoWidth) return;
             isProcessing = true;
             try {
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -88,16 +89,20 @@
                         return;
                     }
                     diagnostic.textContent = data.ear === null ? "Face recognized; locating eye landmarks…" : "Eye aspect ratio: " + data.ear;
-                    if ((data.marked || []).includes(name)) {
+                    if ((data.marked || []).includes(name) || data.blink_confirmed === true) {
                         completedName = name;
                         statusBox.className = "status-box status-confirmed";
-                        statusBox.textContent = "Attendance marked successfully for " + name + ".";
-                        statusBox.classList.add("status-live");
+                        statusBox.setAttribute("role", "status");
+                        statusBox.setAttribute("aria-live", "assertive");
+                        statusBox.textContent = "✓ Attendance marked successfully for " + name + ".";
+                        diagnostic.textContent = "Success — your attendance has been recorded.";
                     } else if ((data.already_marked || []).includes(name)) {
                         completedName = name;
                         statusBox.className = "status-box status-confirmed";
-                        statusBox.textContent = name + " — attendance was already marked today.";
-                        statusBox.classList.add("status-live");
+                        statusBox.setAttribute("role", "status");
+                        statusBox.setAttribute("aria-live", "assertive");
+                        statusBox.textContent = "✓ " + name + " — attendance was already marked today.";
+                        diagnostic.textContent = "Your attendance was already recorded today.";
                     } else if (data.is_blinking) {
                         statusBox.textContent = name + " — blink detected. Open your eyes to confirm.";
                         statusBox.classList.add("status-waiting");
