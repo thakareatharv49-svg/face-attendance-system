@@ -31,6 +31,7 @@ FACE_MATCH_TOLERANCE = float(os.environ.get("FACE_MATCH_TOLERANCE", "0.48"))
 EAR_THRESHOLD = float(os.environ.get("EAR_THRESHOLD", "0.21"))
 BLINK_CLOSED_FRAMES = 1
 LIVENESS_TTL_SECONDS = 20
+MAX_BLINK_DURATION_SECONDS = 2.0
 NAME_PATTERN = re.compile(r"^[\w .'-]{1,60}$", re.UNICODE)
 
 app = Flask(__name__)
@@ -171,14 +172,22 @@ def process_liveness(client_id, name, rgb):
     with liveness_lock:
         state = liveness_sessions.get(client_id)
         if not state or state["expires"] < now or state["name"] != name:
-            state = {"name": name, "closed_frames": 0, "expires": now + LIVENESS_TTL_SECONDS}
+            state = {"name": name, "closed_frames": 0, "closed_at": None, "expires": now + LIVENESS_TTL_SECONDS}
             liveness_sessions[client_id] = state
         state["expires"] = now + LIVENESS_TTL_SECONDS
         if closed:
+            if state["closed_frames"] == 0:
+                state["closed_at"] = now
             state["closed_frames"] = min(state["closed_frames"] + 1, 10)
             return True, False
-        verified = state["closed_frames"] >= BLINK_CLOSED_FRAMES
+        closed_duration = now - state["closed_at"] if state["closed_at"] is not None else None
+        verified = (
+            state["closed_frames"] >= BLINK_CLOSED_FRAMES
+            and closed_duration is not None
+            and 0.05 <= closed_duration <= MAX_BLINK_DURATION_SECONDS
+        )
         state["closed_frames"] = 0
+        state["closed_at"] = None
         if verified:
             liveness_sessions.pop(client_id, None)
         # Periodically discard expired sessions.
